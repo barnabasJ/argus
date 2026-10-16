@@ -173,16 +173,25 @@ defmodule Argus.Extractors.Generated do
   end
 
   defp definitions(module_data) do
-    with {:ok, {:debug_info_v1, backend, data}} <- Helpers.debug_info(module_data),
-         {:ok, %{definitions: definitions}} <-
-           backend.debug_info(:elixir_v1, module_data.module, data, []) do
-      definitions
-    else
-      _ -> []
+    case Helpers.debug_info(module_data) do
+      {:ok, {:debug_info_v1, :elixir_erl, {:elixir_v1, %{definitions: definitions}, _specs}}}
+      when is_list(definitions) ->
+        definitions
+
+      {:ok, {:debug_info_v1, :elixir_erl, :none}} ->
+        []
+
+      {:ok, {:debug_info_v1, :erl_abstract_code, {forms, _options}}} when is_list(forms) ->
+        []
+
+      {:ok, {:debug_info_v1, :erl_abstract_code, {:none, _options}}} ->
+        []
+
+      :error ->
+        []
+
+      _ ->
+        raise ArgumentError, "unsupported debug information for generated-function provenance"
     end
-  rescue
-    # A backend that cannot answer for :elixir_v1 may raise rather than
-    # return an error; such a module has no Elixir definitions to read.
-    _ -> []
   end
 end

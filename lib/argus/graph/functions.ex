@@ -271,7 +271,9 @@ defmodule Argus.Graph.Functions do
 
   defquery :extraction_producer, key: {module, producer}, store: :none do
     cond do
-      producer in @chunk_readers ->
+      producer in @chunk_readers or
+          (Argus.Extractor.requires?(producer, :beam) and
+             not Argus.Extractor.requires?(producer, :typed)) ->
         R.query(db, :extraction_metadata_rows, {module, producer})
 
       producer in @local ->
@@ -429,12 +431,14 @@ defmodule Argus.Graph.Functions do
 
   # Debug-info, compile-info and docs consumers still need the original BEAM. They
   # have their own producer query, so this does not invalidate other producers.
-  defp with_chunks(db, module, producer, data) when producer in @chunk_readers do
-    {:ok, beam} = R.query(db, :module_beam, module)
-    Map.put(data, :beam, Frontend.read(beam))
+  defp with_chunks(db, module, producer, data) do
+    if producer in @chunk_readers or Argus.Extractor.requires?(producer, :beam) do
+      {:ok, beam} = R.query(db, :module_beam, module)
+      Map.put(data, :beam, Frontend.read(beam))
+    else
+      data
+    end
   end
-
-  defp with_chunks(_, _, _, data), do: data
 
   defp options(db, producer) do
     [producers: [producer], trace_imprecision: true, specs_source: Prepared.source(db)]

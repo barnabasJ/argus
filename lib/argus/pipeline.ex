@@ -737,7 +737,11 @@ defmodule Argus.Pipeline do
   # A kept base read back, its decoded facts only for an extractor that
   # reads them; one that cannot be read is computed afresh.
   defp restore(kept, path, extractors) do
-    {:ok, Base.restore(kept, path, typed: Enum.any?(extractors, &(&1 in @typed_readers)))}
+    {:ok,
+     Base.restore(kept, path,
+       typed:
+         Enum.any?(extractors, &(&1 in @typed_readers or Argus.Extractor.requires?(&1, :typed)))
+     )}
   rescue
     _ -> :error
   end
@@ -758,7 +762,7 @@ defmodule Argus.Pipeline do
   @debug_info_readers [Argus.Extractors.Generated, Argus.Extractors.Specs]
 
   defp with_debug_info(data, extractors) do
-    if Enum.any?(extractors, &(&1 in @debug_info_readers)) do
+    if Enum.any?(extractors, &(&1 in @debug_info_readers or Argus.Extractor.requires?(&1, :beam))) do
       Map.put(data, :debug_info, read_debug_info(data))
     else
       data

@@ -21,7 +21,8 @@ defmodule Argus.Extractor do
         end
       end
 
-  A built-in analysis names its extractors in `extractors/0`. For standalone
+  An analysis names its extractors in `extractors/0`. Explicit analysis modules
+  can be selected in the standard `argus: [analyses: [...]]` configuration. For standalone
   experiments, pass custom producers through `:extractors` to
   `Argus.Pipeline.run/3` or `Argus.Debug.capture!/4`. See the runnable extension
   in `examples/contributor/` and CONTRIBUTING.md for built-in registration.
@@ -32,12 +33,12 @@ defmodule Argus.Extractor do
 
   Use `Argus.Extractor.Helpers` to access call sites, control-flow graphs,
   decoded facts, and debug info. These helpers reuse supplied data or build it
-  when called on bare disassembly. Extractors needing decoded facts must be
-  listed in `Argus.Pipeline.typed_readers/0`; their input relations belong in
-  `Argus.Pipeline.typed_relations/0`.
+  when called on bare disassembly. External extractors needing decoded facts declare `requirements/0` with
+  `:typed`; `:beam` also supplies the original immutable BEAM bytes. The typed
+  relations are those in `Argus.Pipeline.typed_relations/0`.
 
   `installed_specs` caches `Argus.Specs.installed/2` for the run. The pipeline
-  reads `debug_info` only for extractors registered as debug-info readers.
+  reads `debug_info` for its built-in readers and extractors requiring `:beam`.
   """
   @type module_data :: %{
           required(:module) => atom(),
@@ -77,5 +78,15 @@ defmodule Argus.Extractor do
   the body and producer code even when no function qualifies.
   """
   @callback candidate_instructions?([Argus.Instr.instr()]) :: boolean()
-  @optional_callbacks candidate?: 1, candidate_instructions?: 1
+  @doc false
+  @spec requires?(module(), :beam | :typed) :: boolean()
+  def requires?(extractor, requirement) do
+    Code.ensure_loaded?(extractor) and function_exported?(extractor, :requirements, 0) and
+      requirement in extractor.requirements()
+  end
+
+  @doc "Additional prepared inputs required by this extractor. External producers operate on the whole module by default."
+  @callback requirements() :: [:beam | :typed]
+
+  @optional_callbacks candidate?: 1, candidate_instructions?: 1, requirements: 0
 end

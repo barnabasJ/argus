@@ -100,6 +100,38 @@ defmodule Argus.Graph.Reads do
     entry_digest(read)
   end
 
+  @doc false
+  defquery :raw_beam, key: input, revalidate: :execute do
+    source = Runtime.input(db, :specs_source, :all, default: nil)
+    index = Runtime.input(db, :code_index, :all, default: %{})
+
+    location =
+      if is_atom(input), do: where(input, source), else: {:path, Path.expand(to_string(input))}
+
+    case location do
+      {:path, path} ->
+        case Runtime.input(db, :beam, path, default: nil) do
+          nil ->
+            case Map.fetch(index, Path.dirname(path)) do
+              {:ok, name} -> Runtime.input(db, :app_code, name, default: nil)
+              :error -> :ok
+            end
+
+          _ ->
+            :ok
+        end
+
+      :absent ->
+        # A missing lookup can become present in any declared dependency.
+        for {_directory, name} <- index, do: Runtime.input(db, :app_code, name, default: nil)
+
+      :runtime ->
+        :ok
+    end
+
+    Argus.Extractor.Reads.read(input, source)
+  end
+
   # What reading `module`'s specs gives, as a digest, depending on the
   # input that moves when its beam does. Where the module lives is the
   # specs source's to say (`Argus.Specs.Source`: the project's ebins and

@@ -190,17 +190,39 @@ defmodule Argus.Graph do
   def set_environment(db, opts \\ []) do
     source = Keyword.get(opts, :specs_source)
     index = Environment.code_index(source, Keyword.get(opts, :own_ebins, []))
-    trees = Enum.uniq([Programs.tree(:stage0) | Keyword.get(opts, :trees, [])])
+
+    trees =
+      Enum.uniq([
+        Programs.tree(:stage0)
+        | Keyword.get(opts, :trees, []) ++
+            Enum.map(Keyword.get(opts, :analyses, []), &Programs.tree/1)
+      ])
 
     [
       set(db, :solver, :all, Environment.solver(db.blob, opts)),
       set(db, :specs_source, :all, source),
+      set(
+        db,
+        :analysis_modules,
+        :all,
+        Argus.Graph.Code.supplied(db, Keyword.get(opts, :analyses, []))
+      ),
+      set(db, :analysis_inputs, :all, analysis_inputs(Keyword.get(opts, :analyses, []))),
       set(db, :code_index, :all, index),
       set(db, :project_root, :all, Keyword.get_lazy(opts, :project_root, &File.cwd!/0))
       | stamps(db, index, Keyword.get(opts, :stamps, true)) ++
           Enum.map(trees, &set(db, :dl_tree, &1, Programs.tree_digests(&1)))
     ]
     |> Enum.any?()
+  end
+
+  defp analysis_inputs(analyses) do
+    for selection <- analyses,
+        {:ok, module, options} <- [Argus.Analysis.Catalog.selection(selection)],
+        into: %{} do
+      inputs = Argus.Analysis.Inputs.prepare(module, options)
+      {selection, inputs}
+    end
   end
 
   defp stamps(_db, _index, false), do: []

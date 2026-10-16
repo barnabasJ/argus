@@ -45,7 +45,10 @@ defmodule Argus.Graph.ExtractionCache do
       name: name
     })
 
-    {{:ok, result}, schema} = Argus.Schema.Reads.track(compute)
+    {{{:ok, result}, beam_reads}, schema} =
+      Argus.Schema.Reads.track(fn ->
+        Argus.Extractor.Reads.track(fn input -> Reads.raw_beam(db, input) end, compute)
+      end)
 
     dependencies =
       for(
@@ -54,7 +57,10 @@ defmodule Argus.Graph.ExtractionCache do
       ) ++
         for(module <- result.installed, do: {:installed, Atom.to_string(module)})
 
-    observed = for read <- Enum.sort(dependencies), do: {read, observe(db, read)}
+    observed =
+      for(read <- Enum.sort(dependencies), do: {read, observe(db, read)}) ++
+        Enum.map(beam_reads, fn {input, identity} -> {{:raw_beam, input}, identity} end)
+
     # A function's rows are small. Keep them in the compressed trace rather
     # than writing and reading a second file for each producer/function pair.
     result = Map.drop(result, [:reads, :installed])
@@ -62,6 +68,7 @@ defmodule Argus.Graph.ExtractionCache do
     {:ok, result}
   end
 
+  defp observe(db, {:raw_beam, input}), do: db |> Reads.raw_beam(input) |> elem(1)
   defp observe(db, {:schema, read}), do: Reads.schema_entry(db, read)
   defp observe(db, {:installed, name}), do: Reads.installed_specs(db, String.to_atom(name))
 end

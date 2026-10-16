@@ -9,6 +9,14 @@ defmodule Argus.Extractors.GeneratedTest do
     facts
   end
 
+  test "known absent Elixir debug information has no generated definitions" do
+    assert Generated.extract(%{
+             module: __MODULE__,
+             functions: [],
+             debug_info: {:ok, {:debug_info_v1, :elixir_erl, :none}}
+           }) == %{}
+  end
+
   describe "macro_written" do
     test "a function whose every clause a macro wrote" do
       assert ["#{inspect(LateMessage.Warmer)}:handle_info/2"] in facts(LateMessage.Warmer)[

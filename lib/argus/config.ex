@@ -91,7 +91,7 @@ defmodule Argus.Config do
   @type priors :: %{mode: :off | :cached_only | :live, opts: keyword()}
 
   @type t :: %__MODULE__{
-          analyses: [atom()],
+          analyses: [Argus.Analysis.analysis()],
           severity: %{optional(atom()) => :error | :warning | :info},
           ignore_modules: [Regex.t() | module()],
           ignore_files: [String.t()],
@@ -144,9 +144,11 @@ defmodule Argus.Config do
 
     unknown_keys!(ctx, [:ignore], ignore, @ignore_keys)
 
+    analyses = analyses!(ctx, Keyword.get(raw, :analyses, Argus.Graph.default_analyses()))
+
     %__MODULE__{
-      analyses: analyses!(ctx, Keyword.get(raw, :analyses, Argus.Graph.default_analyses())),
-      severity: severity!(ctx, Keyword.get(raw, :severity, [])),
+      analyses: analyses,
+      severity: severity!(ctx, Keyword.get(raw, :severity, []), analyses),
       ignore_modules: ignore_modules!(ctx, Keyword.get(ignore, :modules, [])),
       ignore_files: ignore_files!(ctx, Keyword.get(ignore, :files, [])),
       include_deps: boolean!(ctx, :include_deps, Keyword.get(raw, :include_deps, false)),
@@ -251,13 +253,17 @@ defmodule Argus.Config do
   defp analyses!(ctx, names) when is_list(names) do
     known = Argus.Analysis.builtin_analyses()
 
-    case Enum.find(names, &(not (is_atom(&1) and resolvable?(&1, known)))) do
-      nil ->
-        names |> Enum.flat_map(&resolve/1) |> Enum.uniq()
+    unknowns =
+      Enum.filter(names, fn
+        name when is_atom(name) ->
+          not resolvable?(name, known) and not Argus.Analysis.Catalog.external?(name)
 
-      unknown ->
-        unknowns = Enum.reject(names, &(is_atom(&1) and resolvable?(&1, known)))
+        _ ->
+          false
+      end)
 
+    case unknowns do
+      [unknown | _] ->
         unknown_name!(
           ctx,
           [:analyses],
@@ -266,7 +272,52 @@ defmodule Argus.Config do
             "or a set: #{show(ctx, Enum.sort(Map.keys(Argus.Analysis.sets())))}",
           known
         )
+
+      [] ->
+        :ok
     end
+
+    selected =
+      Enum.flat_map(names, fn
+        name when is_atom(name) ->
+          cond do
+            resolvable?(name, known) ->
+              resolve(name)
+
+            Argus.Analysis.Catalog.external?(name) ->
+              [name]
+
+            true ->
+              unknown_name!(ctx, [:analyses], name, "unknown analysis #{show(ctx, name)}", known)
+          end
+
+        {module, options} = selection when is_atom(module) and is_list(options) ->
+          if Argus.Analysis.Catalog.external?(module) and Keyword.keyword?(options) and
+               Enum.uniq(Keyword.keys(options)) == Keyword.keys(options) do
+            if options != [] and not function_exported?(module, :input_facts, 1),
+              do: fail(ctx, [:analyses], selection, "analysis options require input_facts/1")
+
+            [selection]
+          else
+            fail(
+              ctx,
+              [:analyses],
+              selection,
+              "expected an Analysis module and unique keyword options"
+            )
+          end
+
+        other ->
+          fail(ctx, [:analyses], other, "expected an analysis name, module or {module, options}")
+      end)
+      |> Enum.uniq()
+
+    reporting_names = Enum.map(selected, &Argus.Analysis.Catalog.name/1)
+
+    if Enum.uniq(reporting_names) != reporting_names,
+      do: fail(ctx, [:analyses], names, "selected analyses must have distinct reporting names")
+
+    selected
   end
 
   defp analyses!(ctx, other),
@@ -410,8 +461,11 @@ defmodule Argus.Config do
   # Keys name what `analyses:` accepts: a concern or a set (every member
   # takes the severity). Later entries win, so `[default: :warning, mailbox:
   # :error]` raises one concern above the rest of its set.
-  defp severity!(ctx, pairs) when is_list(pairs) do
-    known = Argus.Analysis.builtin_analyses()
+  defp severity!(ctx, pairs, analyses) when is_list(pairs) do
+    known =
+      Enum.uniq(
+        Argus.Analysis.builtin_analyses() ++ Enum.map(analyses, &Argus.Analysis.Catalog.name/1)
+      )
 
     ctx
     |> keyword!([:severity], pairs, "severity must be a keyword list")
@@ -443,7 +497,7 @@ defmodule Argus.Config do
     |> Map.new()
   end
 
-  defp severity!(ctx, other),
+  defp severity!(ctx, other, _analyses),
     do: fail(ctx, [:severity], other, "severity must be a keyword list, got: #{show(ctx, other)}")
 
   defp ignore_modules!(ctx, patterns) when is_list(patterns) do

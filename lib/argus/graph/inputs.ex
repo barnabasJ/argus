@@ -52,4 +52,6 @@ defmodule Argus.Graph.Inputs do
   definput(:app_code, durability: :high)
   definput(:solver, durability: :high)
   definput(:dl_tree, durability: :high)
+  definput(:analysis_modules, durability: :high)
+  definput(:analysis_inputs, durability: :medium)
 end

@@ -45,7 +45,7 @@ defmodule Argus.Graph.Programs do
   def rules_path(:points_to), do: {:ok, Argus.Analysis.points_to_rules_path()}
   def rules_path(:points_to_bounded), do: {:ok, Argus.Analysis.points_to_bounded_rules_path()}
   def rules_path({:custom, path}), do: {:ok, Path.expand(path)}
-  def rules_path(analysis) when is_atom(analysis), do: Catalog.rules_path(analysis)
+  def rules_path(analysis), do: Catalog.rules_path(analysis)
 
   @typedoc """
   What a program is read from, as the `dl_tree` input is keyed: the
@@ -61,7 +61,23 @@ defmodule Argus.Graph.Programs do
   """
   @spec tree(program()) :: tree()
   def tree({:custom, path}), do: {:program, Path.expand(path)}
-  def tree(_builtin), do: Argus.Dl.path("") |> Path.expand()
+
+  def tree(selection) do
+    module =
+      case selection do
+        {module, _options} -> module
+        name -> name
+      end
+
+    if module not in Catalog.names() and Catalog.external?(module) do
+      case rules_path(selection) do
+        {:ok, path} -> {:program, Path.expand(path)}
+        {:error, {:rules_not_found, path}} -> {:program, Path.expand(path)}
+      end
+    else
+      Argus.Dl.path("") |> Path.expand()
+    end
+  end
 
   @doc """
   The `dl_tree` input for a tree: each Datalog file under argus's
@@ -119,8 +135,9 @@ defmodule Argus.Graph.Programs do
 
   defquery :program_files, key: program do
     # Which file an analysis's program is: its module's to say.
-    if is_atom(program) and program not in [:stage0, :points_to, :points_to_bounded],
-      do: _ = Runtime.query(db, :analysis_code, program)
+    if program not in [:stage0, :points_to, :points_to_bounded] and
+         not match?({:custom, _}, program),
+       do: _ = Runtime.query(db, :analysis_code, program)
 
     with {:ok, path} <- rules_path(program) do
       tree = tree(program)
@@ -144,7 +161,7 @@ defmodule Argus.Graph.Programs do
          {:ok, path} <- rules_path(program) do
       # Kept in the VM, and in the store for a fresh one.
       Roux.Stamp.memo(
-        {__MODULE__, :io, files, solver.version},
+        {__MODULE__, :io, 2, files, solver.version},
         [],
         fn -> io(path) end,
         store: db.blob
@@ -159,7 +176,14 @@ defmodule Argus.Graph.Programs do
       {:ok,
        %{
          inputs: Enum.map(manifest.inputs, &{&1.name, &1.file}),
-         outputs: Enum.map(manifest.outputs, &{&1.name, &1.file})
+         outputs: Enum.map(manifest.outputs, &{&1.name, &1.file}),
+         relations:
+           Enum.map(manifest.relations, fn relation ->
+             case Enum.find(manifest.inputs, &(&1.name == relation.name)) do
+               nil -> relation
+               input -> %{relation | columns: input.columns}
+             end
+           end)
        }}
     end
   end

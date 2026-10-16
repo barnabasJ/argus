@@ -145,6 +145,11 @@ defmodule Argus.Analysis do
   @callback description() :: String.t()
   @callback rules_file() :: String.t()
   @callback extractors() :: [module()]
+
+  @doc "Optional authored input rows for this analysis selection. Options belong to the analysis."
+  @callback input_facts(keyword()) :: input_facts()
+  @optional_callbacks input_facts: 1
+
   @callback output_relations() :: [output_relation()]
 
   @doc """
@@ -177,7 +182,8 @@ defmodule Argus.Analysis do
 
   # Public API types.
 
-  @type analysis :: atom() | {:custom, Path.t()}
+  @type input_facts :: %{required(:facts) => map(), optional(:schemas) => [map()]}
+  @type analysis :: atom() | {module(), keyword()} | {:custom, Path.t()}
   @type result :: %{String.t() => [[String.t()]]}
 
   # ── Concerns and sets (Argus.Analysis.Sets) ─────────────────────────
@@ -348,6 +354,9 @@ defmodule Argus.Analysis do
   """
   @spec filter_to_outputs(result(), analysis()) :: result()
   def filter_to_outputs(results, {:custom, _path}), do: results
+
+  def filter_to_outputs(results, {module, options}) when is_atom(module) and is_list(options),
+    do: filter_to_outputs(results, module)
 
   def filter_to_outputs(results, name) when is_atom(name) do
     case output_relations(name) do
