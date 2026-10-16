@@ -82,6 +82,26 @@ defmodule Argus.Graph.Functions do
     end
   end
 
+  defquery :extraction_references, key: {module, producers} do
+    with {:ok, beam} <- R.query(db, :module_beam, module),
+         bytes = Frontend.bytes(beam),
+         {:ok, data} <- Disassemble.disassemble_path(bytes) do
+      codes = R.query(db, :producer_code, :all)
+      data = Map.put(data, :input_role, R.input(db, :module_role, module, default: :project))
+
+      references =
+        Enum.flat_map(producers, fn producer ->
+          _ = Map.fetch!(codes, producer)
+          if function_exported?(producer, :references, 1), do: producer.references(data), else: []
+        end)
+
+      unless is_list(references) and Enum.all?(references, &(is_atom(&1) and &1 != nil)),
+        do: raise(ArgumentError, "extractor references must be module identities")
+
+      {:ok, Enum.sort(Enum.uniq(references))}
+    end
+  end
+
   defquery :extraction_function, key: {module, key}, store: :none do
     with {:ok, data} <- R.query(db, :extraction_index, module) do
       case Map.get(data.functions, key) do
@@ -207,7 +227,8 @@ defmodule Argus.Graph.Functions do
              {name, arity} = export_key(entry)
              {name, arity, 0}
            end),
-         imports: data.imports
+         imports: data.imports,
+         input_role: R.input(db, :module_role, module, default: :project)
        }}
     end
   end
@@ -431,9 +452,11 @@ defmodule Argus.Graph.Functions do
   # Debug-info, compile-info and docs consumers still need the original BEAM. They
   # have their own producer query, so this does not invalidate other producers.
   defp with_chunks(db, module, producer, data) do
+    data = Map.put(data, :input_role, R.input(db, :module_role, module, default: :project))
+
     if producer in @chunk_readers or Argus.Extractor.requires?(producer, :beam) do
       {:ok, beam} = R.query(db, :module_beam, module)
-      Map.put(data, :beam, Frontend.read(beam))
+      Map.put(data, :beam, Frontend.bytes(beam))
     else
       data
     end

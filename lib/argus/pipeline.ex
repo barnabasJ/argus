@@ -685,6 +685,17 @@ defmodule Argus.Pipeline do
   end
 
   defp extractor_data(data, memo, extractors) do
+    data =
+      if Enum.any?(extractors, &Argus.Extractor.requires?(&1, :beam)) do
+        Map.update(data, :beam, nil, fn
+          <<"FOR1", _::binary>> = bytes -> bytes
+          path when is_binary(path) and path != "" -> Argus.RawFile.read!(path)
+          other -> other
+        end)
+      else
+        data
+      end
+
     data
     |> prepare_indexes()
     |> Map.put(:installed_specs, memo)

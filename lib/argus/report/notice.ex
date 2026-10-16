@@ -31,6 +31,7 @@ defmodule Argus.Report.Notice do
   @type kind ::
           :engine_unavailable
           | :degraded
+          | :required_module_input
           | :extraction_error
           | :duplicate
           | :points_to_bounded
@@ -56,6 +57,17 @@ defmodule Argus.Report.Notice do
     Enum.map(unavailable, fn :engine_unavailable -> engine_unavailable(config.engine) end) ++
       Enum.map(Result.degraded(result), &degraded/1) ++
       Enum.map(rest, &of(&1, cwd))
+  end
+
+  defp of({:required_module_input, %{analysis: analysis, module: module, reason: reason}}, _cwd) do
+    name = if is_atom(module), do: inspect(module), else: module
+
+    notice(
+      :required_module_input,
+      :error,
+      "the #{Argus.Analysis.Catalog.name(analysis)} analysis has partial results: " <>
+        "required module input #{name} is #{reason}; findings that need it may be missing"
+    )
   end
 
   defp of({:extraction_error, error}, _cwd), do: extraction_error(error)

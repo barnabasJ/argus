@@ -80,6 +80,11 @@ defmodule Argus.Graph.Frontend do
   def read(%{path: path}), do: path
   def read(%{data: data}), do: data
 
+  @doc "Immutable bytes supplied to a producer from its native module input."
+  @spec bytes(beam()) :: binary()
+  def bytes(%{data: data}), do: data
+  def bytes(%{path: path}), do: Argus.RawFile.read!(path)
+
   defp header_module(input) do
     target = bytes_or_path(input)
 

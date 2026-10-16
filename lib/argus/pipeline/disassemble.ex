@@ -80,7 +80,7 @@ defmodule Argus.Pipeline.Disassemble do
          {:ok, data} <- BeamSpy.BeamFile.disassemble(bytes) do
       {:ok,
        data
-       |> Map.put(:beam, path)
+       |> Map.put(:beam, bytes)
        |> Map.put(:imports, fetch_imports(bytes))
        |> Map.put(:line_table, fetch_line_table(bytes))}
     end

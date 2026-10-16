@@ -215,10 +215,22 @@ analyses' findings.
 
 External extractors operate on prepared whole-module data. Declare
 `requirements/0` as `[:beam]`, `[:typed]`, or both when those inputs are needed.
-Read other compiled modules through `Argus.Extractor.Helpers.read_beam/1` so the
-Graph tracks the exact bytes and missing lookups. This function does not load or
-execute the target module. The Graph invalidates the relevant extraction when
-its referenced BEAM changes or a missing module appears.
+The `:beam` value contains immutable bytes supplied by native input discovery.
+An optional `references/1` callback returns module identities required by the
+current module. Argus resolves those identities through the project's declared
+application and dependency paths, and tracks the complete input closure. Missing
+required modules leave the available closure analyzable and mark the result
+incomplete. Native notices name the missing inputs. The CLI, Mix task and compiler
+fail incomplete runs even when there are zero Findings. Invalid reference callback
+contracts still degrade only their selection. Cycles and duplicate references do not
+create duplicate inputs. Reference changes and later appearance use the normal
+native input identities; extractors must not reopen or resolve other BEAM files.
+
+Selections with references use a program containing their project inputs and
+reference closure. Other selections retain their original program scope.
+`module_data.input_role` distinguishes `:project` from `:reference`; authored
+rules must distinguish analysis roots from metadata supplied as evidence. A
+referenced callback that is linked from a project root can still carry a finding.
 
 Roux memoizes analyzer code within one VM, for external and builtin analyses.
 A new CLI invocation observes changed analyzer code. A long-running caller that

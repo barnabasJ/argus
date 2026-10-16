@@ -46,7 +46,8 @@ defmodule Argus.Extractor do
           required(:attributes) => keyword(),
           required(:functions) => list(),
           optional(:imports) => list(),
-          optional(:beam) => String.t() | binary(),
+          optional(:beam) => binary(),
+          optional(:input_role) => :project | :reference,
           optional(:line_table) => map(),
           optional(:call_sites) => [Argus.Extractor.CallSites.site()],
           optional(:cfg) => %{{String.t(), arity()} => Argus.Cfg.Function.t()},
@@ -88,5 +89,13 @@ defmodule Argus.Extractor do
   @doc "Additional prepared inputs required by this extractor. External producers operate on the whole module by default."
   @callback requirements() :: [:beam | :typed]
 
-  @optional_callbacks candidate?: 1, candidate_instructions?: 1, requirements: 0
+  @doc """
+  Additional module inputs required by facts from this module. Return identities
+  only. Native discovery resolves and tracks them through the project's inputs.
+  The callback receives only the current supplied module, never another module's
+  decoded metadata. Omit it when this producer has no additional inputs.
+  """
+  @callback references(module_data()) :: [module()]
+
+  @optional_callbacks candidate?: 1, candidate_instructions?: 1, requirements: 0, references: 1
 end

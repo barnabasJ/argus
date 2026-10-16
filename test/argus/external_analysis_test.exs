@@ -76,9 +76,55 @@ defmodule Argus.ExternalAnalysisTest do
     beam!(:external_reference, context.reference, [{:attribute, 3, :external_value, :second}])
     run.("second")
     File.rm!(context.reference)
-    run.("missing")
-    beam!(:external_reference, context.reference, [{:attribute, 3, :external_value, :third}])
-    run.("third")
+    missing = {ExternalAnalysis, value: "second"}
+
+    failed =
+      Argus.Driver.run(Argus.Config.load(analyses: [:coupling, missing]),
+        project: context.project,
+        store: context.store
+      )
+
+    assert {:ok, []} = failed.located.coupling
+    assert {:ok, []} = failed.located[missing]
+    assert Argus.Driver.Result.degraded(failed) == []
+    assert Argus.Driver.Result.incomplete?(failed)
+
+    assert [
+             {:required_module_input,
+              %{analysis: ^missing, module: :external_reference, reason: :missing}}
+           ] = failed.notices
+
+    config = Argus.Config.load(analyses: [:coupling, missing])
+    notices = Argus.Report.Notice.from_result(failed, config, context.project.root)
+    assert [%{severity: :error, message: message}] = notices
+    assert message =~ "partial results"
+    refute message =~ "reported nothing"
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      result =
+        Argus.CLI.report(
+          failed,
+          [],
+          config,
+          %Argus.CLI.Options{format: :json, fail_above: 0},
+          context.project.root,
+          context.project.root
+        )
+
+      assert result.entries == []
+      assert result.status == 3
+    end)
+
+    stable = Argus.Driver.run(config, project: context.project, store: context.store)
+    refute stable.changed?
+    assert stable.located == failed.located
+    assert stable.notices == failed.notices
+    beam!(:external_reference, context.reference, [{:attribute, 3, :external_value, :second}])
+    recovered = Argus.Driver.run(config, project: context.project, store: context.store)
+    refute Argus.Driver.Result.incomplete?(recovered)
+    assert recovered.notices == []
+    assert {:ok, [located]} = recovered.located[missing]
+    assert located.finding.title == "External value second"
     assert :code.is_loaded(:external_reference) == false
   end
 
@@ -217,41 +263,77 @@ defmodule Argus.ExternalAnalysisTest do
     end
   end
 
-  test "raw read scopes restore after nesting, exceptions and parallel extraction", context do
-    reader = &Argus.Extractor.Reads.read/1
-    path = context.reference
+  test "native inputs preserve project/reference roles and bound cyclic declarations", context do
+    selection = {ExternalAnalysis, value: "first"}
+    config = Argus.Config.load(analyses: [:coupling, selection])
+    manifest = Path.join(context.project.root, "references.manifest")
 
-    {nested, parent_reads} =
-      Argus.Extractor.Reads.track(reader, fn ->
-        inner =
-          Argus.Extractor.Reads.track(reader, fn ->
-            assert {:ok, _} = Argus.Extractor.Helpers.read_beam(path)
-          end)
+    result =
+      Argus.Driver.run(config, project: context.project, store: context.store, manifest: manifest)
 
-        assert {:ok, _} = Argus.Extractor.Helpers.read_beam(path)
-        inner
-      end)
+    assert result.notices == []
+    session = Argus.Graph.open(store: context.store, manifest: manifest)
 
-    assert {_result, [{^path, identity}]} = nested
-    assert parent_reads == [{path, identity}]
+    try do
+      program = Argus.Graph.analysis_program(session.db, :project, selection)
+      assert program != :project
+      assert Argus.Graph.analysis_program(session.db, :project, :coupling) == :project
 
-    assert_raise RuntimeError, "scope failed", fn ->
-      Argus.Extractor.Reads.track(fn _ -> raise "recorder leaked" end, fn ->
-        raise "scope failed"
-      end)
+      assert Enum.sort(Argus.Graph.Relations.rows(session.db, program, :external_role)) == [
+               [":external_owner", "project"],
+               [":external_reference", "reference"]
+             ]
+    after
+      Roux.Session.close(session)
     end
 
-    assert {:ok, _} = Argus.Extractor.Helpers.read_beam(path)
+    unchanged =
+      Argus.Driver.run(config, project: context.project, store: context.store, manifest: manifest)
 
-    tasks =
-      for input <- [path, :external_absent] do
-        Task.async(fn ->
-          Argus.Extractor.Reads.track(reader, fn -> Argus.Extractor.Helpers.read_beam(input) end)
-        end)
-      end
+    refute unchanged.changed?
+    assert unchanged.located == result.located
+  end
 
-    assert [{_, [{^path, ^identity}]}, {{:error, :enoent}, [{:external_absent, :missing}]}] =
-             Enum.map(tasks, &Task.await/1)
+  test "a reference declaration failure degrades only its selection", context do
+    beam!(:external_reference, context.reference, [
+      {:attribute, 3, :external_reference_fail, true}
+    ])
+
+    selection = {ExternalAnalysis, value: "first"}
+
+    result =
+      Argus.Driver.run(Argus.Config.load(analyses: [:coupling, selection]),
+        project: context.project,
+        store: context.store
+      )
+
+    assert {:ok, []} = result.located.coupling
+
+    assert {:error, {:required_module_inputs, {:reference_declaration, ArgumentError}}} =
+             result.located[selection]
+
+    assert [%{analysis: ^selection}] = Argus.Driver.Result.degraded(result)
+  end
+
+  test "referenced producer failures remain native extraction notices", context do
+    beam!(:external_reference, context.reference, [{:attribute, 3, :external_fail, true}])
+    selection = {ExternalAnalysis, value: "first"}
+
+    result =
+      Argus.Driver.run(Argus.Config.load(analyses: [:coupling, selection]),
+        project: context.project,
+        store: context.store
+      )
+
+    assert {:ok, []} = result.located.coupling
+
+    assert Enum.any?(result.notices, fn
+             {:extraction_error, %{module: :external_reference, reason: reason}} ->
+               String.contains?(reason, "referenced fixture producer failed")
+
+             _ ->
+               false
+           end)
   end
 
   test "native extraction never invokes a persisted debug backend", context do

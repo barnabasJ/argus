@@ -103,9 +103,24 @@ defmodule Argus.Driver do
           {path, path}
         end)
 
+      selected_files = files
+
+      previous_files =
+        for key <- Input.keys(db, :beam), is_binary(key), into: %{}, do: {key, key}
+
+      files = Map.merge(previous_files, files)
+
+      metadata? =
+        Enum.any?(config.analyses, fn selection ->
+          {:ok, module, _} = Argus.Analysis.Catalog.selection(selection)
+          Enum.any?(module.extractors(), &Argus.Extractor.requires?(&1, :beam))
+        end)
+
+      input_hash = if metadata?, do: &Roux.Blob.digest/1, else: &Graph.hash/1
+
       %{meta: meta} =
         Roux.Sources.sync(db, :beam, files, session.sources,
-          hash: &Graph.hash/1,
+          hash: input_hash,
           value: fn %{hash: hash} -> %{hash: hash} end
         )
 
@@ -132,15 +147,51 @@ defmodule Argus.Driver do
           specs_source: Argus.Specs.Source.new(project)
         )
 
+      references =
+        Argus.Project.References.prepare(
+          db,
+          Argus.Specs.Source.new(project),
+          keys,
+          files,
+          session.sources,
+          meta,
+          config.analyses,
+          input_hash,
+          selected_files
+        )
+
+      meta = references.meta
+
       solver? = Argus.FlowLog.available?()
 
       {located, notices} =
         if solver? do
-          :ok = Graph.set_priors(db, @program, config.priors)
-          located = Graph.located(db, @program, config.analyses)
-          {located, extraction_notices(db, discovered) ++ points_to_notices(db)}
+          programs = Enum.uniq([@program | Map.values(references.programs)])
+          Enum.each(programs, &Graph.set_priors(db, &1, config.priors))
+
+          located =
+            Map.new(config.analyses, fn selection ->
+              outcome =
+                case Map.fetch(references.errors, selection) do
+                  {:ok, reason} ->
+                    {:error, reason}
+
+                  :error ->
+                    program = Map.fetch!(references.programs, selection)
+                    Map.fetch!(Graph.located(db, program, [selection]), selection)
+                end
+
+              {selection, outcome}
+            end)
+
+          {located,
+           Enum.uniq(
+             required_input_notices(references.incomplete) ++
+               extraction_notices(db, discovered, programs) ++
+               Enum.flat_map(programs, &points_to_notices(db, &1))
+           )}
         else
-          {%{}, [:engine_unavailable]}
+          {%{}, [:engine_unavailable | required_input_notices(references.incomplete)]}
         end
 
       changed? = force? or moved?(session)
@@ -154,6 +205,12 @@ defmodule Argus.Driver do
       }
     after
       Roux.Session.close(session)
+    end
+  end
+
+  defp required_input_notices(incomplete) do
+    for {selection, missing} <- Enum.sort(incomplete), {module, reason} <- missing do
+      {:required_module_input, %{analysis: selection, module: module, reason: reason}}
     end
   end
 
@@ -171,10 +228,10 @@ defmodule Argus.Driver do
   # What extraction could not do: each module it could not read at all
   # (named as the scan found its beam: nothing in it says which module it
   # is), and each step it recorded as failing on a module.
-  defp extraction_notices(db, discovered) do
+  defp extraction_notices(db, discovered, programs) do
     by_path = Map.new(discovered, fn {module, path} -> {Path.expand(path), module} end)
 
-    for error <- Graph.Findings.extraction_errors(db, @program) do
+    for program <- programs, error <- Graph.Findings.extraction_errors(db, program) do
       module = error.module || Map.get(by_path, error.source)
       name = if error.module == nil and module != nil, do: inspect(module), else: error.source
 
@@ -184,8 +241,8 @@ defmodule Argus.Driver do
 
   # The points-to stage ran bounded, when an analysis read it: the
   # leaves its coarse pass resolved.
-  defp points_to_notices(db) do
-    case Roux.Memo.get(db, {:stage, {@program, :points_to}}) do
+  defp points_to_notices(db, program) do
+    case Roux.Memo.get(db, {:stage, {program, :points_to}}) do
       {:ok, %Roux.Memo.Entry{value: {:ok, %{mode: {:bounded, leaves}}}}} ->
         [{:points_to_bounded, leaves}]
 

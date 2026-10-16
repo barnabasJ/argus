@@ -256,7 +256,7 @@ defmodule Argus.CLI do
   ask (`--format`, `--color`), and says how it went: the entries, and
   the exit status (1 when there are more findings than `--fail-above`,
   or one at `--fail-on`'s severity or above, 3 when an analysis
-  degraded, else 0). Ignored files are matched
+  degraded or required module inputs are missing, else 0). Ignored files are matched
   relative to `root`; paths are shown relative to `cwd`. Shared by the
   escript and `mix argus`.
   """
@@ -282,7 +282,7 @@ defmodule Argus.CLI do
 
     status =
       cond do
-        Argus.Driver.Result.degraded(result) != [] -> 3
+        Argus.Driver.Result.degraded(result) != [] or Argus.Driver.Result.incomplete?(result) -> 3
         over?(entries, options.fail_above) -> 1
         failing(entries, options.fail_on) != [] -> 1
         true -> 0

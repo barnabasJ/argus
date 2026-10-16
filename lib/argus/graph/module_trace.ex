@@ -82,7 +82,7 @@ defmodule Argus.Graph.ModuleTrace do
     do: walk(db, module, keys ++ rest, seen, reads, codes)
 
   defp next(db, module, {query, key}, rest, seen, reads, codes)
-       when query in [:schema_entry, :installed_specs, :raw_beam] do
+       when query in [:schema_entry, :installed_specs] do
     read = if query == :installed_specs, do: {query, Atom.to_string(key)}, else: {query, key}
     walk(db, module, rest, seen, Map.put(reads, read, true), codes)
   end
@@ -108,8 +108,6 @@ defmodule Argus.Graph.ModuleTrace do
 
   # An unfamiliar dependency must remain on the ordinary graph path.
   defp next(_db, _module, _key, _rest, _seen, _reads, _codes), do: :unavailable
-
-  defp observe(db, {:raw_beam, input}), do: db |> R.query(:raw_beam, input) |> elem(1)
 
   defp observe(db, {:installed_specs, name}),
     do: R.query(db, :installed_specs, String.to_atom(name))

@@ -377,8 +377,14 @@ defmodule Argus.Graph do
     |> Map.new(fn {:ok, result} -> result end)
   end
 
+  @doc "The native input program for one selection, including its declared module references."
+  @spec analysis_program(Roux.Database.t(), term(), term()) :: term()
+  def analysis_program(db, program, analysis) do
+    Roux.Runtime.input(db, :analysis_program, {program, analysis}, default: program)
+  end
+
   defp located_one(db, program, analysis) do
-    Argus.Graph.Locate.located(db, {program, analysis})
+    Argus.Graph.Locate.located(db, {analysis_program(db, program, analysis), analysis})
   rescue
     exception -> {:error, {:crashed, Exception.format_banner(:error, exception, __STACKTRACE__)}}
   end

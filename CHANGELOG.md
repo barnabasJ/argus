@@ -10,8 +10,11 @@ which a change appeared; older names and APIs may have changed since then.
 - Explicit external `Argus.Analysis` modules and `{module, options}` selections
   in the standard Driver and Graph. Optional `input_facts/1` supplies isolated
   policy rows. Extractor `requirements/0` requests BEAM bytes or typed facts.
-- `Argus.Extractor.Helpers.read_beam/1` records referenced BEAM reads, including
-  missing lookups, in native extraction cache dependencies.
+- Optional extractor `references/1` declares required module inputs. Native
+  discovery resolves and tracks each selection's reference closure, supplies
+  immutable BEAM bytes, and distinguishes project inputs from reference inputs.
+  Missing required inputs preserve partial results and make native frontends fail
+  even with zero Findings. Invalid reference callbacks degrade only their selection.
 
 ## 0.24.0 — 2026-10-15
 

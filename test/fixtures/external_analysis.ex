@@ -3,30 +3,44 @@ defmodule Argus.Test.ExternalProducer do
   @behaviour Argus.Extractor
 
   @impl true
-  def relations, do: [:external_value]
+  def relations, do: [:external_value, :external_reference_link, :external_role]
   @impl true
   def requirements, do: [:beam, :typed]
   @impl true
+  def references(data) do
+    {:ok, {_, chunks}} = :beam_lib.chunks(data.beam, [:attributes])
+
+    if Keyword.get(Keyword.fetch!(chunks, :attributes), :external_reference_fail) == [true],
+      do: raise(ArgumentError, "fixture reference declaration failed")
+
+    case data.module do
+      :external_owner -> [:external_reference]
+      :external_reference -> [:external_owner]
+      _ -> []
+    end
+  end
+
+  @impl true
   def extract(data) do
-    true = is_binary(data.beam)
+    <<"FOR1", _::binary>> = data.beam
     [_ | _] = Map.fetch!(data.typed, :function_def)
+    {:ok, {module, chunks}} = :beam_lib.chunks(data.beam, [:attributes])
+    attributes = Keyword.fetch!(chunks, :attributes)
 
-    value =
-      case Argus.Extractor.Helpers.read_beam(:external_reference) do
-        {:ok, bytes} ->
-          {:ok, {:external_reference, chunks}} = :beam_lib.chunks(bytes, [:attributes])
+    if Keyword.get(attributes, :external_fail) == [true],
+      do: raise("referenced fixture producer failed")
 
-          chunks
-          |> Keyword.fetch!(:attributes)
-          |> Keyword.fetch!(:external_value)
-          |> hd()
-          |> Atom.to_string()
+    value = Keyword.get(attributes, :external_value, [])
 
-        {:error, :enoent} ->
-          "missing"
-      end
-
-    %{external_value: [[inspect(data.module), value]]}
+    %{
+      external_value: Enum.map(value, &[inspect(module), Atom.to_string(&1)]),
+      external_reference_link:
+        if(module == :external_owner,
+          do: [[inspect(module), inspect(:external_reference)]],
+          else: []
+        ),
+      external_role: [[inspect(module), Atom.to_string(Map.get(data, :input_role, :project))]]
+    }
   end
 end
 

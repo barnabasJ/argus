@@ -41,11 +41,6 @@ defmodule Argus.Extractor.Helpers do
 
   @type origins :: Argus.Extractor.Identity.origins()
 
-  @doc "Read immutable BEAM bytes without loading a target. Native graph extraction tracks successful and missing reads."
-  @spec read_beam(module() | Path.t() | charlist() | binary()) ::
-          {:ok, binary()} | {:error, term()}
-  defdelegate read_beam(input), to: Argus.Extractor.Reads
-
   # --- Per-instruction scanning ---
 
   @doc """
