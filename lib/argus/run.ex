@@ -179,7 +179,7 @@ defmodule Argus.Run do
         _moved =
           Graph.set_environment(
             db,
-            [trees: trees, stamps: stamps] ++
+            [analyses: analyses, trees: trees, stamps: stamps] ++
               Keyword.take(opts, [:timeout, :workers])
           )
 

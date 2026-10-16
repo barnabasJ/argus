@@ -94,7 +94,8 @@ defmodule Argus.Report.Notice do
     notice(
       :degraded,
       :warning,
-      "the #{analysis} analysis degraded and reported nothing: " <> describe(reason)
+      "the #{Argus.Analysis.Catalog.name(analysis)} analysis degraded and reported nothing: " <>
+        describe(reason)
     )
   end
 

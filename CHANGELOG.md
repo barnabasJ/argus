@@ -3,6 +3,16 @@
 Notable changes and upgrade notes for Argus. Entries describe the release in
 which a change appeared; older names and APIs may have changed since then.
 
+## Unreleased
+
+### Added
+
+- Explicit external `Argus.Analysis` modules and `{module, options}` selections
+  in the standard Driver and Graph. Optional `input_facts/1` supplies isolated
+  policy rows. Extractor `requirements/0` requests BEAM bytes or typed facts.
+- `Argus.Extractor.Helpers.read_beam/1` records referenced BEAM reads, including
+  missing lookups, in native extraction cache dependencies.
+
 ## 0.24.0 — 2026-10-15
 
 ### Removed

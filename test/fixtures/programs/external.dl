@@ -1,0 +1,8 @@
+.decl external_value(module:symbol,value:symbol) mutable
+.input external_value
+.decl external_policy(value:symbol) mutable
+.input external_policy
+.decl unused_policy(value:symbol) mutable
+.decl external_found(module:symbol,value:symbol)
+external_found(m,v) :- external_value(m,v),external_policy(v).
+.output external_found

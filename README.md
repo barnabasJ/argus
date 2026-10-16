@@ -189,3 +189,39 @@ a finding, inspect its rules and facts, or run a small extension. The
 ## License
 
 MIT
+
+## External analysis modules
+
+Select a module that implements `Argus.Analysis` beside builtin names and sets:
+
+```elixir
+argus: [analyses: [:coupling, {MyApp.Analysis, allowed: [MyApp.API]}]]
+```
+
+The standard `mix argus` task and `Argus.Driver` run the selection through the
+same incremental Graph, Findings and report pipeline. Each module names its
+extractors and main Datalog program through the existing callbacks. Return an
+absolute `rules_file/0` path, or a path under the analysis application's
+`priv/dl`. Programs include their own libraries and input declarations.
+
+The optional `input_facts/1` callback receives the selected options and returns
+`%{facts: %{relation: [["raw", "fields"]]}}`. Rows belong only to that selection.
+They cannot overwrite extracted or shared-stage relations. Optional `schemas:`
+descriptors (`%{name: atom, fields: [{name, kind, doc}]}`) validate declarations
+that the compiler removes because they are unused. Raw fields are strings;
+number columns hold signed 32-bit integers. Reporting names must be unique.
+Callback and program errors degrade their selection without removing other
+analyses' findings.
+
+External extractors operate on prepared whole-module data. Declare
+`requirements/0` as `[:beam]`, `[:typed]`, or both when those inputs are needed.
+Read other compiled modules through `Argus.Extractor.Helpers.read_beam/1` so the
+Graph tracks the exact bytes and missing lookups. This function does not load or
+execute the target module. The Graph invalidates the relevant extraction when
+its referenced BEAM changes or a missing module appears.
+
+Roux memoizes analyzer code within one VM, for external and builtin analyses.
+A new CLI invocation observes changed analyzer code. A long-running caller that
+intentionally reloads analyzer modules must call `Roux.Code.forget/0` before the
+next Driver run. This resets code identities; the Graph manifest and result
+store remain intact. Policy-input and included-program edits need no reset.

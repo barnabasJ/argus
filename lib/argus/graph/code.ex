@@ -57,16 +57,53 @@ defmodule Argus.Graph.Code do
   def closure(producer),
     do: Roux.Code.closure(producer_roots(producer), exclude: &Reads.schema_module?/1)
 
+  @doc false
+  @spec supplied(Roux.Database.t(), [Argus.Analysis.analysis()]) :: map()
+  def supplied(db, analyses) do
+    selected =
+      for selection <- analyses,
+          {:ok, module, _options} <- [Argus.Analysis.Catalog.selection(selection)],
+          selection not in Argus.Analysis.Catalog.names(),
+          Argus.Analysis.Catalog.external?(
+            case selection do
+              {selected_module, _} -> selected_module
+              selected_module -> selected_module
+            end
+          ),
+          do: {selection, module}
+
+    modules =
+      Map.new(selected, fn {selection, module} -> {selection, {module, digest([module], db)}} end)
+
+    producers =
+      selected |> Enum.flat_map(fn {_selection, module} -> module.extractors() end) |> Enum.uniq()
+
+    %{analyses: modules, producers: Map.new(producers, &{&1, digest(producer_roots(&1), db)})}
+  end
+
   defquery :producer_code, key: :all, code: {__MODULE__, :roots, []} do
-    for producer <- Extraction.producers(), into: %{} do
-      {producer, digest(producer_roots(producer), db)}
-    end
+    supplied = Roux.Runtime.input(db, :analysis_modules, :all, default: %{producers: %{}})
+
+    builtin =
+      for producer <- Extraction.producers(), into: %{} do
+        {producer, digest(producer_roots(producer), db)}
+      end
+
+    Map.merge(builtin, supplied.producers)
   end
 
   defquery :analysis_code, key: analysis, code: {__MODULE__, :roots, []} do
-    case Argus.Analysis.fetch_module(analysis) do
-      {:ok, module} -> {module, digest([module], db)}
-      :error -> :unknown
+    supplied = Roux.Runtime.input(db, :analysis_modules, :all, default: %{analyses: %{}})
+
+    case Map.fetch(supplied.analyses, analysis) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        case Argus.Analysis.fetch_module(analysis) do
+          {:ok, module} -> {module, digest([module], db)}
+          :error -> :unknown
+        end
     end
   end
 

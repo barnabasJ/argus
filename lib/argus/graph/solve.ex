@@ -90,7 +90,30 @@ defmodule Argus.Graph.Solve do
 
   defquery :analysis_inputs, key: {program, analysis} do
     with {:ok, io} <- Runtime.query(db, :program_io, analysis) do
-      inputs(db, program, io.inputs)
+      supplied =
+        Runtime.input(db, :analysis_inputs, :all, default: %{})
+        |> Map.get(analysis, {:ok, %{facts: %{}}})
+
+      with {:ok, policy} <- supplied,
+           :ok <-
+             Argus.Analysis.Inputs.validate(
+               policy,
+               io,
+               Runtime.query(db, :producer_code, :all) |> Map.keys()
+             ),
+           {:ok, sources} <- inputs(db, program, io.inputs) do
+        {:ok,
+         Enum.map(sources, fn {relation, file, source} ->
+           case Map.fetch(policy.facts, relation) do
+             {:ok, rows} ->
+               text = rows |> Argus.Tsv.encode() |> IO.iodata_to_binary()
+               {relation, file, {:policy, Blob.digest(text), text}}
+
+             :error ->
+               {relation, file, source}
+           end
+         end)}
+      end
     end
   end
 
@@ -206,6 +229,7 @@ defmodule Argus.Graph.Solve do
     end
   end
 
+  defp identity({:policy, digest, _text}), do: {:policy, digest}
   defp identity({:cas, digest}), do: {:cas, digest}
   defp identity({:relation, _relation, digest}), do: {:relation, digest}
 
@@ -222,6 +246,11 @@ defmodule Argus.Graph.Solve do
     with {:ok, files} <- Relations.files(db, program, relations) do
       {:ok,
        Enum.map(inputs, fn
+         {name, _file, {:policy, _digest, text} = source} ->
+           {:ok, digest} = Blob.put(db.blob, text)
+           Runtime.hold([digest])
+           {name, {:cas, digest}, identity(source)}
+
          {name, file, {:cas, digest} = source} ->
            :ok = present!(db, program, file, digest)
            {name, source, identity(source)}

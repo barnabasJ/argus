@@ -122,6 +122,7 @@ defmodule Argus.Driver do
 
       _moved =
         Graph.set_environment(db,
+          analyses: config.analyses,
           project_root: project.root,
           # Every beam there is an input (`discovered` and `ignored`).
           own_ebins: Enum.map(project.apps, &elem(&1, 1)),

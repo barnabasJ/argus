@@ -197,7 +197,7 @@ defmodule Argus.Specs do
 
     specs =
       with {:ok, target} <- target,
-           {:ok, specs} <- fetch(fn -> Code.Typespec.fetch_specs(target) end) do
+           {:ok, specs} <- fetch(fn -> fetch_specs(target) end) do
         Enum.map(specs, fn {name_arity, clauses} ->
           {name_arity, Enum.map(clauses, &unannotated/1)}
         end)
@@ -235,6 +235,22 @@ defmodule Argus.Specs do
 
   # ── Reading ─────────────────────────────────────────────────────────
 
+  defp read_beam(module) when is_atom(module) do
+    case :code.which(module) do
+      path when is_list(path) ->
+        File.read(path)
+
+      :preloaded ->
+        case :code.get_object_code(module) do
+          {^module, bytes, _path} -> {:ok, bytes}
+          :error -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
   defp read_beam(beam) do
     cond do
       BeamSpy.BeamFile.beam_data?(beam) -> {:ok, beam}
@@ -259,14 +275,24 @@ defmodule Argus.Specs do
   # decodes it again (an Elixir module's chunk carries its whole
   # definition): an Elixir module's specs as its chunk stores them, an
   # Erlang module's abstract code.
-  defp typespec_forms(module, {:debug_info_v1, backend, data}) do
-    case data do
-      {:elixir_v1, %{}, specs} -> {:ok, specs}
-      _ -> backend.debug_info(:erlang_v1, module, data, [])
-    end
-  end
+  defp typespec_forms(_module, {:debug_info_v1, :elixir_erl, {:elixir_v1, %{}, specs}})
+       when is_list(specs), do: {:ok, specs}
+
+  defp typespec_forms(_module, {:debug_info_v1, :erl_abstract_code, {forms, _options}})
+       when is_list(forms), do: {:ok, forms}
 
   defp typespec_forms(_module, _chunk), do: :error
+
+  defp forms(target) do
+    with {:ok, binary} <- read_beam(target),
+         {:ok, {module, chunk}} <- read_chunk(binary),
+         do: typespec_forms(module, chunk)
+  end
+
+  defp fetch_specs(target) do
+    with {:ok, forms} <- forms(target),
+         do: {:ok, for({:attribute, _, :spec, spec} <- forms, do: spec)}
+  end
 
   defp read_chunk(binary) do
     with [_ | _] = info <- :beam_lib.info(binary),
@@ -283,18 +309,15 @@ defmodule Argus.Specs do
   end
 
   defp local_types(module_or_binary) do
-    case fetch(fn -> Code.Typespec.fetch_types(module_or_binary) end) do
-      {:ok, types} ->
-        Map.new(types, fn {_kind, {name, body, args}} -> {{name, length(args)}, {args, body}} end)
-
-      :error ->
-        %{}
+    case fetch(fn -> forms(module_or_binary) end) do
+      {:ok, forms} -> types_of(forms)
+      :error -> %{}
     end
   end
 
   defp read_installed(module, memo) do
     with {:ok, target} <- target(module, memo),
-         {:ok, specs} <- fetch(fn -> Code.Typespec.fetch_specs(target) end) do
+         {:ok, specs} <- fetch(fn -> fetch_specs(target) end) do
       specs
     else
       :error -> :unknown
