@@ -204,6 +204,11 @@ extractors and main Datalog program through the existing callbacks. Return an
 absolute `rules_file/0` path, or a path under the analysis application's
 `priv/dl`. Programs include their own libraries and input declarations.
 
+Relative `.include` targets resolve from the installed main program path.
+Argus prepares the captured include graph for its native tools. This preserves
+sibling-package includes through Mix `priv` symlinks. Program identities still
+refer to the original rules, and diagnostics retain their original paths.
+
 The optional `input_facts/1` callback receives the selected options and returns
 `%{facts: %{relation: [["raw", "fields"]]}}`. Rows belong only to that selection.
 They cannot overwrite extracted or shared-stage relations. Optional `schemas:`

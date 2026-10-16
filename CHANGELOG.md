@@ -16,6 +16,12 @@ which a change appeared; older names and APIs may have changed since then.
   Missing required inputs preserve partial results and make native frontends fail
   even with zero Findings. Invalid reference callbacks degrade only their selection.
 
+### Fixed
+
+- Datalog tools now consume one captured include closure with lexically resolved
+  targets. Relative sibling-package includes work through Mix `priv` symlinks.
+  Original rule identities, declaration pruning and diagnostic paths remain intact.
+
 ## 0.24.0 — 2026-10-15
 
 ### Removed
