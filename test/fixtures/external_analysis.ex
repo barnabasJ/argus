@@ -108,3 +108,35 @@ defmodule Argus.Test.ExternalDebugBackend do
     {:error, :unsupported}
   end
 end
+
+defmodule Argus.Test.EmptyReferenceProducer do
+  @moduledoc false
+  @behaviour Argus.Extractor
+  @impl true
+  def relations, do: []
+  @impl true
+  def requirements, do: [:beam]
+  @impl true
+  def references(_data), do: []
+  @impl true
+  def extract(_data), do: %{}
+end
+
+defmodule Argus.Test.LateReferenceAnalysis do
+  @moduledoc false
+  @behaviour Argus.Analysis
+  @impl true
+  defdelegate name(), to: Argus.Test.ExternalAnalysis
+  @impl true
+  defdelegate description(), to: Argus.Test.ExternalAnalysis
+  @impl true
+  defdelegate rules_file(), to: Argus.Test.ExternalAnalysis
+  @impl true
+  def extractors, do: [Argus.Test.EmptyReferenceProducer, Argus.Test.ExternalProducer]
+  @impl true
+  defdelegate input_facts(options), to: Argus.Test.ExternalAnalysis
+  @impl true
+  defdelegate output_relations(), to: Argus.Test.ExternalAnalysis
+  @impl true
+  defdelegate finding(relation, row), to: Argus.Test.ExternalAnalysis
+end

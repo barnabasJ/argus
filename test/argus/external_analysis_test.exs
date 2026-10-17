@@ -57,6 +57,32 @@ defmodule Argus.ExternalAnalysisTest do
     assert :code.is_loaded(:external_reference) == false
   end
 
+  test "a fresh VM loads every trusted reference producer before probing callbacks", context do
+    expression = """
+    false = :code.is_loaded(Argus.Test.ExternalProducer)
+    selection = {Argus.Test.LateReferenceAnalysis, value: "first"}
+    config = Argus.Config.load(analyses: [selection])
+    result = Argus.Driver.run(config, project: #{inspect(context.project)}, store: #{inspect(context.store.root)})
+    [] = result.notices
+    {:ok, [located]} = Map.fetch!(result.located, selection)
+    "External value first" = located.finding.title
+    false = :code.is_loaded(:external_owner)
+    false = :code.is_loaded(:external_reference)
+    IO.write("late-reference-pass")
+    """
+
+    paths = Enum.flat_map(:code.get_path(), &["-pa", to_string(&1)])
+
+    {output, status} =
+      System.cmd(System.find_executable("elixir"), paths ++ ["-e", expression],
+        stderr_to_stdout: true,
+        env: [{"ERL_FLAGS", "+S 4:4"}]
+      )
+
+    assert status == 0, output
+    assert output =~ "late-reference-pass"
+  end
+
   test "referenced BEAM changes and lookup absence invalidate a warm graph", context do
     run = fn value ->
       selection = {ExternalAnalysis, value: value}

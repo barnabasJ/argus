@@ -92,7 +92,10 @@ defmodule Argus.Graph.Functions do
       references =
         Enum.flat_map(producers, fn producer ->
           _ = Map.fetch!(codes, producer)
-          if function_exported?(producer, :references, 1), do: producer.references(data), else: []
+
+          if Code.ensure_loaded?(producer) and function_exported?(producer, :references, 1),
+            do: producer.references(data),
+            else: []
         end)
 
       unless is_list(references) and Enum.all?(references, &(is_atom(&1) and &1 != nil)),
