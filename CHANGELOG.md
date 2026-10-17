@@ -10,17 +10,8 @@ which a change appeared; older names and APIs may have changed since then.
 - Explicit external `Argus.Analysis` modules and `{module, options}` selections
   in the standard Driver and Graph. Optional `input_facts/1` supplies isolated
   policy rows. Extractor `requirements/0` requests BEAM bytes or typed facts.
-- Optional extractor `references/1` declares required module inputs. Native
-  discovery resolves and tracks each selection's reference closure, supplies
-  immutable BEAM bytes, and distinguishes project inputs from reference inputs.
-  Missing required inputs preserve partial results and make native frontends fail
-  even with zero Findings. Invalid reference callbacks degrade only their selection.
-
-### Fixed
-
-- Datalog tools now consume one captured include closure with lexically resolved
-  targets. Relative sibling-package includes work through Mix `priv` symlinks.
-  Original rule identities, declaration pruning and diagnostic paths remain intact.
+- Extractor module data identifies project application inputs with `project?`.
+  Dependency inputs use the existing `include_deps` configuration and native scan.
 
 ## 0.24.0 — 2026-10-15
 

@@ -1,10 +1,10 @@
 .decl external_value(module:symbol,value:symbol) mutable
 .input external_value
-.decl external_reference_link(owner:symbol,target:symbol) mutable
-.input external_reference_link
+.decl external_dependency_link(owner:symbol,target:symbol) mutable
+.input external_dependency_link
 .decl external_policy(value:symbol) mutable
 .input external_policy
 .decl unused_policy(value:symbol) mutable
 .decl external_found(module:symbol,value:symbol)
-external_found(owner,v) :- external_reference_link(owner,m),external_value(m,v),external_policy(v).
+external_found(owner,v) :- external_dependency_link(owner,m),external_value(m,v),external_policy(v).
 .output external_found

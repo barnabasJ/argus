@@ -37,6 +37,9 @@ defmodule Argus.Extractor do
   `:typed`; `:beam` also supplies the original immutable BEAM bytes. The typed
   relations are those in `Argus.Pipeline.typed_relations/0`.
 
+  `project?` identifies modules from the project applications. Direct pipeline inputs
+  default to `true`; explicitly empty project ebin paths identify no project modules.
+
   `installed_specs` caches `Argus.Specs.installed/2` for the run. The pipeline
   reads `debug_info` for its built-in readers and extractors requiring `:beam`.
   """
@@ -47,7 +50,7 @@ defmodule Argus.Extractor do
           required(:functions) => list(),
           optional(:imports) => list(),
           optional(:beam) => binary(),
-          optional(:input_role) => :project | :reference,
+          optional(:project?) => boolean(),
           optional(:line_table) => map(),
           optional(:call_sites) => [Argus.Extractor.CallSites.site()],
           optional(:cfg) => %{{String.t(), arity()} => Argus.Cfg.Function.t()},
@@ -89,13 +92,5 @@ defmodule Argus.Extractor do
   @doc "Additional prepared inputs required by this extractor. External producers operate on the whole module by default."
   @callback requirements() :: [:beam | :typed]
 
-  @doc """
-  Additional module inputs required by facts from this module. Return identities
-  only. Native discovery resolves and tracks them through the project's inputs.
-  The callback receives only the current supplied module, never another module's
-  decoded metadata. Omit it when this producer has no additional inputs.
-  """
-  @callback references(module_data()) :: [module()]
-
-  @optional_callbacks candidate?: 1, candidate_instructions?: 1, requirements: 0, references: 1
+  @optional_callbacks candidate?: 1, candidate_instructions?: 1, requirements: 0
 end

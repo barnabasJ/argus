@@ -33,17 +33,6 @@ defmodule Argus.FlowLog.Program do
   alias Argus.FlowLog.Prebuilt
   alias Argus.FlowLog.Toolchain
 
-  @typedoc "An immutable tool input and the captured authored closure that names it."
-  @type prepared :: %{
-          prepared: true,
-          path: Path.t(),
-          original: Path.t(),
-          files: [Argus.Dl.Program.source_file()],
-          digest: binary(),
-          sources: %{Path.t() => Path.t()}
-        }
-  @type source :: Path.t() | Argus.Dl.Program.snapshot() | prepared()
-
   @typedoc "One input or output relation of a program."
   @type relation :: %{name: String.t(), file: String.t(), columns: [String.t()]}
 
@@ -65,13 +54,13 @@ defmodule Argus.FlowLog.Program do
   @doc """
   The program's manifest, asked of the toolchain's tool (`inspect`).
   """
-  @spec inspect(Toolchain.t(), source()) :: {:ok, manifest()} | {:error, term()}
+  @spec inspect(Toolchain.t(), Path.t()) :: {:ok, manifest()} | {:error, term()}
   def inspect(%Toolchain{} = toolchain, rules_path) do
-    prepared = prepare(toolchain, rules_path)
-    run_tool(toolchain, ["inspect", prepared.path], prepared)
+    path = Path.expand(rules_path)
+    run_tool(toolchain, ["inspect", path], path)
   end
 
-  defp run_tool(toolchain, args, prepared) do
+  defp run_tool(toolchain, args, path) do
     case System.cmd(Toolchain.tool(toolchain), args, stderr_to_stdout: false) do
       {out, status} when status in [0, 1] ->
         case decode(out) do
@@ -96,122 +85,16 @@ defmodule Argus.FlowLog.Program do
              }}
 
           {:ok, %{"ok" => false, "diagnostic" => diagnostic}} ->
-            {:error,
-             {:flowlog_program, prepared.original, original_diagnostic(prepared, diagnostic)}}
+            {:error, {:flowlog_program, path, diagnostic}}
 
           _ ->
-            {:error, {:flowlog_tool, status, original_diagnostic(prepared, out)}}
+            {:error, {:flowlog_tool, status, out}}
         end
 
       {out, status} ->
-        {:error, {:flowlog_tool, status, original_diagnostic(prepared, out)}}
+        {:error, {:flowlog_tool, status, out}}
     end
   end
-
-  @doc "Publish one immutable tool input from the exact captured authored closure."
-  @spec prepare(toolchain :: Toolchain.t(), rules_path :: source()) :: prepared()
-  def prepare(_toolchain, %{prepared: true} = prepared), do: prepared
-
-  def prepare(toolchain, rules_path) do
-    snapshot =
-      case rules_path do
-        %{files: _} = snapshot -> snapshot
-        path -> Argus.Dl.Program.snapshot(path)
-      end
-
-    key =
-      :crypto.hash(:sha256, :erlang.term_to_binary({1, snapshot})) |> Base.encode16(case: :lower)
-
-    parent = Path.join(toolchain.dir, "programs")
-    directory = Path.join(parent, key)
-
-    paths =
-      snapshot.files
-      |> Enum.with_index()
-      |> Map.new(fn {file, index} ->
-        {file.identity, Path.join(directory, "#{index}.dl")}
-      end)
-
-    contents =
-      for file <- snapshot.files, file.content != nil do
-        content =
-          Enum.reduce(Enum.reverse(file.includes), file.content, fn edge, content ->
-            target = Map.fetch!(paths, edge.identity)
-            # Toolchain roots are paths, not Datalog strings. Escape only their string
-            # representation; preserve the original directive and its line count.
-            target = target |> String.replace("\\", "\\\\") |> String.replace("\"", "\\\"")
-
-            binary_part(content, 0, edge.offset) <>
-              target <>
-              binary_part(
-                content,
-                edge.offset + edge.length,
-                byte_size(content) - edge.offset - edge.length
-              )
-          end)
-
-        {Map.fetch!(paths, file.identity), content}
-      end
-
-    File.mkdir_p!(parent)
-
-    unless File.dir?(directory) do
-      stage = directory <> ".tmp-#{:os.getpid()}-#{System.unique_integer([:positive])}"
-      File.mkdir!(stage)
-
-      try do
-        for {path, content} <- contents do
-          file = Path.join(stage, Path.basename(path))
-          File.write!(file, content, [:exclusive])
-          File.chmod!(file, 0o444)
-        end
-
-        File.chmod!(stage, 0o700)
-
-        case File.rename(stage, directory) do
-          :ok ->
-            :ok
-
-          {:error, reason} when reason in [:eexist, :enotempty] ->
-            :ok
-
-          {:error, reason} ->
-            raise File.Error, reason: reason, action: "publish prepared program", path: directory
-        end
-      after
-        if File.dir?(stage) do
-          File.chmod!(stage, 0o700)
-          File.rm_rf!(stage)
-        end
-      end
-    end
-
-    for {path, expected} <- contents do
-      unless File.read!(path) == expected,
-        do: raise(ArgumentError, "Prepared program content differs from its captured closure")
-    end
-
-    reverse = Map.new(snapshot.files, &{Map.fetch!(paths, &1.identity), &1.path})
-
-    Map.merge(snapshot, %{
-      prepared: true,
-      path: Map.fetch!(paths, hd(snapshot.files).identity),
-      sources: reverse
-    })
-  end
-
-  @doc "Restore authored paths in a tool diagnostic. Rewriting includes retains source lines."
-  @spec original_diagnostic(prepared :: prepared(), diagnostic :: String.t()) :: String.t()
-  def original_diagnostic(prepared, diagnostic) do
-    prepared.sources
-    |> Enum.sort_by(fn {path, _} -> -byte_size(path) end)
-    |> Enum.reduce(diagnostic, fn {path, original}, text ->
-      String.replace(text, path, original)
-    end)
-  end
-
-  defp original_path(%{original: path}), do: path
-  defp original_path(path), do: Path.expand(path)
 
   defp decode(out) do
     {:ok, out |> String.trim() |> :json.decode()}
@@ -234,7 +117,7 @@ defmodule Argus.FlowLog.Program do
   @type profile :: :release | :quick
 
   @typedoc "A program to build: its path, its digest, and its profile."
-  @type build :: {source(), String.t(), profile()}
+  @type build :: {Path.t(), String.t(), profile()}
 
   @doc """
   The profile the engine of the program at `rules_path` is built with:
@@ -243,9 +126,9 @@ defmodule Argus.FlowLog.Program do
   `quick`). Raises `ArgumentError` naming the variable when it says
   anything else.
   """
-  @spec profile(source()) :: profile()
+  @spec profile(Path.t()) :: profile()
   def profile(rules_path) do
-    if shipped?(original_path(rules_path)), do: :release, else: requested_profile()
+    if shipped?(Path.expand(rules_path)), do: :release, else: requested_profile()
   end
 
   defp requested_profile do
@@ -267,7 +150,7 @@ defmodule Argus.FlowLog.Program do
   The engine executable for the program at `rules_path`, whose digest is
   `digest`: installed, or built now (`engines/3`, as a batch of one).
   """
-  @spec engine(Toolchain.t(), source(), String.t(), keyword()) ::
+  @spec engine(Toolchain.t(), Path.t(), String.t(), keyword()) ::
           {:ok, Path.t()} | {:error, term()}
   def engine(%Toolchain{} = toolchain, rules_path, digest, opts \\ []) do
     with :ok <- engines(toolchain, [{rules_path, digest}], opts),
@@ -289,7 +172,7 @@ defmodule Argus.FlowLog.Program do
   together, whoever asked (`Argus.FlowLog.Builder`); Cargo serializes
   builds into the toolchain's target directory across VMs.
   """
-  @spec engines(Toolchain.t(), [{source(), String.t()}], keyword()) :: :ok | {:error, term()}
+  @spec engines(Toolchain.t(), [{Path.t(), String.t()}], keyword()) :: :ok | {:error, term()}
   def engines(%Toolchain{} = toolchain, programs, opts \\ []) do
     case missing(toolchain, programs) do
       [] -> :ok
@@ -300,8 +183,8 @@ defmodule Argus.FlowLog.Program do
   defp missing(toolchain, programs) do
     programs
     |> Enum.map(fn {path, digest} ->
-      prepared = prepare(toolchain, path)
-      {prepared, digest, profile(prepared)}
+      path = Path.expand(path)
+      {path, digest, profile(path)}
     end)
     |> Enum.uniq_by(&key/1)
     |> Enum.reject(fn {_path, digest, profile} -> installed(toolchain, digest, profile) end)
@@ -341,9 +224,9 @@ defmodule Argus.FlowLog.Program do
   from the release's bundle when the bundle holds it (`:none` when it
   does not, or the program is not argus's own). Never compiles.
   """
-  @spec bundled(Toolchain.t(), source(), String.t(), keyword()) :: {:ok, Path.t()} | :none
+  @spec bundled(Toolchain.t(), Path.t(), String.t(), keyword()) :: {:ok, Path.t()} | :none
   def bundled(%Toolchain{} = toolchain, rules_path, digest, opts \\ []) do
-    path = original_path(rules_path)
+    path = Path.expand(rules_path)
 
     cond do
       exe = installed(toolchain, digest, :release) ->
@@ -455,7 +338,7 @@ defmodule Argus.FlowLog.Program do
     end
   end
 
-  defp shipped?(path), do: String.starts_with?(original_path(path), Argus.Dl.shipped() <> "/")
+  defp shipped?(path), do: String.starts_with?(path, Argus.Dl.shipped() <> "/")
 
   # One Cargo build per profile: a build compiles every binary with one.
   defp compile_all(toolchain, programs) do
@@ -547,7 +430,7 @@ defmodule Argus.FlowLog.Program do
     :ok
   end
 
-  defp display(path), do: Path.relative_to(original_path(path), Argus.Dl.root())
+  defp display(path), do: Path.relative_to(path, Argus.Dl.root())
 
   defp bin_name(digest), do: "engine-#{binary_part(digest, 0, min(16, byte_size(digest)))}"
 
@@ -588,8 +471,7 @@ defmodule Argus.FlowLog.Program do
   end
 
   defp generate(toolchain, rules_path, dir, digest) do
-    prepared = prepare(toolchain, rules_path)
-    run_tool(toolchain, ["generate", prepared.path, dir, digest], prepared)
+    run_tool(toolchain, ["generate", rules_path, dir, digest], rules_path)
   end
 
   defp manifest_json(%{inputs: inputs, outputs: outputs} = _manifest) do

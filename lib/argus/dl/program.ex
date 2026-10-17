@@ -14,22 +14,6 @@ defmodule Argus.Dl.Program do
   keys each program on it (`Argus.Graph.Programs`, `Argus.FlowLog.program_digest/2`).
   """
 
-  @type include_edge :: %{
-          spelled: String.t(),
-          path: Path.t(),
-          identity: Path.t(),
-          offset: non_neg_integer(),
-          length: non_neg_integer()
-        }
-  @type source_file :: %{
-          spelled: String.t(),
-          path: Path.t(),
-          identity: Path.t(),
-          content: binary() | nil,
-          includes: [include_edge()]
-        }
-  @type snapshot :: %{original: Path.t(), files: [source_file()], digest: binary()}
-
   # How long `stamped/2` trusts its files without a look, and the size
   # below which it looks at their content, not only their stat.
   @restat_ms 1_000
@@ -59,11 +43,19 @@ defmodule Argus.Dl.Program do
   defp shipped?(path), do: String.starts_with?(path, Argus.Dl.shipped() <> "/")
 
   defp compute_program_digest(path) do
-    snapshot = snapshot(path)
-    # Preserve the authored digest API's missing-file failure. Tool preparation
-    # leaves missing edges for FlowLog to diagnose against the including line.
-    for file <- snapshot.files, file.content == nil, do: Argus.RawFile.read!(file.path)
-    {Enum.map(snapshot.files, & &1.path), snapshot.digest}
+    files = program_files(path)
+
+    digest =
+      Enum.reduce(files, :crypto.hash_init(:sha256), fn {spelled, file}, hash ->
+        content = Argus.RawFile.read!(file)
+
+        hash
+        |> :crypto.hash_update(<<byte_size(spelled)::32>> <> spelled)
+        |> :crypto.hash_update(<<byte_size(content)::64>> <> content)
+      end)
+      |> :crypto.hash_final()
+
+    {Enum.map(files, &elem(&1, 1)), digest}
   end
 
   @doc """
@@ -85,22 +77,15 @@ defmodule Argus.Dl.Program do
   changes every declaration a shipped program does not load and
   checks that its outputs, byte for byte, and this digest do not move.
   """
-  @spec declared_digest(rules_path :: Path.t() | snapshot(), relations :: [String.t()] | :all) ::
-          binary()
+  @spec declared_digest(Path.t(), [String.t()] | :all) :: binary()
   def declared_digest(rules_path, relations) do
+    path = Path.expand(rules_path)
+
     parts =
-      case rules_path do
-        %{files: files} ->
-          parts(files)
-
-        path ->
-          path = Path.expand(path)
-
-          if shipped?(path) do
-            stamped({__MODULE__, :program_parts, path}, fn -> program_parts(path) end)
-          else
-            path |> program_parts() |> elem(1)
-          end
+      if shipped?(path) do
+        stamped({__MODULE__, :program_parts, path}, fn -> program_parts(path) end)
+      else
+        path |> program_parts() |> elem(1)
       end
 
     keep = if relations == :all, do: :all, else: MapSet.new(relations)
@@ -131,19 +116,19 @@ defmodule Argus.Dl.Program do
   # Each file of the program, in `program_files/1`'s order: a file of
   # declarations alone as its declarations, any other by its content.
   defp program_parts(path) do
-    snapshot = snapshot(path)
-    {Enum.map(snapshot.files, & &1.path), parts(snapshot.files)}
-  end
+    files = program_files(path)
 
-  defp parts(files) do
-    Enum.map(files, fn %{spelled: spelled, content: captured, path: path} ->
-      content = if captured == nil, do: Argus.RawFile.read!(path), else: captured
+    parts =
+      Enum.map(files, fn {spelled, file} ->
+        content = Argus.RawFile.read!(file)
 
-      case declarations(content) do
-        {:ok, blocks} -> {:declarations, spelled, blocks}
-        :error -> {:text, spelled, :crypto.hash(:sha256, uncommented(content))}
-      end
-    end)
+        case declarations(content) do
+          {:ok, blocks} -> {:declarations, spelled, blocks}
+          :error -> {:text, spelled, :crypto.hash(:sha256, uncommented(content))}
+        end
+      end)
+
+    {Enum.map(files, &elem(&1, 1)), parts}
   end
 
   @doc ~S"""
@@ -317,114 +302,21 @@ defmodule Argus.Dl.Program do
   """
   @spec program_files(Path.t()) :: [{String.t(), Path.t()}]
   def program_files(rules_path) do
-    Enum.map(snapshot(rules_path).files, &{&1.spelled, &1.path})
+    walk([{Path.basename(rules_path), Path.expand(rules_path)}], %{}, [])
   end
 
-  @doc "Capture original closure bytes and include edges once, before preparing a tool input."
-  @spec snapshot(rules_path :: Path.t()) :: snapshot()
-  def snapshot(rules_path) do
-    path = Path.expand(rules_path)
+  defp walk([], _seen, acc), do: Enum.reverse(acc)
 
-    if shipped?(path) do
-      stamped({__MODULE__, :snapshot, path}, fn ->
-        captured = capture_snapshot(path)
-        {Enum.map(captured.files, & &1.path), captured}
-      end)
+  defp walk([{spelled, path} | rest], seen, acc) do
+    if Map.has_key?(seen, path) do
+      walk(rest, seen, acc)
     else
-      capture_snapshot(path)
-    end
-  end
+      included =
+        ~r/^\s*[.#]include\s+"([^"]+)"/m
+        |> Regex.scan(Argus.RawFile.read!(path))
+        |> Enum.map(fn [_, rel] -> {rel, Path.expand(rel, Path.dirname(path))} end)
 
-  defp capture_snapshot(path) do
-    {files, _seen} = capture(Path.basename(path), path, %{}, [])
-    files = Enum.reverse(files)
-
-    digest =
-      Enum.reduce(files, :crypto.hash_init(:sha256), fn file, hash ->
-        content = file.content || :erlang.term_to_binary({:missing, file.path})
-
-        hash
-        |> :crypto.hash_update(<<byte_size(file.spelled)::32>> <> file.spelled)
-        |> :crypto.hash_update(<<byte_size(content)::64>> <> content)
-      end)
-      |> :crypto.hash_final()
-
-    %{original: path, files: files, digest: digest}
-  end
-
-  defp capture(spelled, path, seen, files) do
-    identity = physical(path)
-
-    if Map.has_key?(seen, identity) do
-      {files, seen}
-    else
-      content =
-        case Argus.RawFile.read(path) do
-          {:ok, bytes} -> bytes
-          {:error, _} -> nil
-        end
-
-      includes = if content, do: includes(content, path), else: []
-
-      file = %{
-        spelled: spelled,
-        path: path,
-        identity: identity,
-        content: content,
-        includes: includes
-      }
-
-      Enum.reduce(includes, {[file | files], Map.put(seen, identity, true)}, fn edge,
-                                                                                {files, seen} ->
-        capture(edge.spelled, edge.path, seen, files)
-      end)
-    end
-  end
-
-  # Retain the include resolver's spelling/order. A prepared graph changes only
-  # the quoted target bytes; the directive and every newline stay in place.
-  defp includes(content, path) do
-    Regex.scan(~r/^\s*[.#]include\s+"([^"]+)"/m, content, return: :index)
-    |> Enum.map(fn [_whole, {offset, length}] ->
-      spelled = binary_part(content, offset, length)
-      target = Path.expand(spelled, Path.dirname(path))
-
-      %{
-        spelled: spelled,
-        path: target,
-        identity: physical(target),
-        offset: offset,
-        length: length
-      }
-    end)
-  end
-
-  defp absolute(path) do
-    if Path.type(path) == :absolute, do: path, else: Path.join(File.cwd!(), path)
-  end
-
-  # Targets were expanded lexically by the authored include resolver above.
-  # Canonicalize aliases only after that decision, to retain native same-file
-  # diamond/cycle behavior without changing which installed sibling is named.
-  defp physical(path), do: physical(Path.split(absolute(path)), "/", 0)
-  defp physical([], resolved, _links), do: resolved
-  defp physical(["/" | rest], _resolved, links), do: physical(rest, "/", links)
-  defp physical(["." | rest], resolved, links), do: physical(rest, resolved, links)
-  defp physical([".." | rest], resolved, links), do: physical(rest, Path.dirname(resolved), links)
-
-  defp physical([part | rest], resolved, links) do
-    candidate = Path.join(resolved, part)
-
-    case File.read_link(candidate) do
-      {:ok, target} when links < 40 ->
-        target = if Path.type(target) == :absolute, do: target, else: Path.join(resolved, target)
-        physical(Path.split(target) ++ rest, "/", links + 1)
-
-      {:ok, _} ->
-        raise File.Error, reason: :eloop, action: "resolve include", path: candidate
-
-      {:error, _} ->
-        physical(rest, candidate, links)
+      walk(included ++ rest, Map.put(seen, path, true), [{spelled, path} | acc])
     end
   end
 end

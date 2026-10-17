@@ -173,7 +173,10 @@ defmodule Argus.Graph do
     * `:timeout` — milliseconds a solve's commit may run;
     * `:workers` — dataflow worker threads per engine, or `:auto` (the
       default) by each solve's inputs (`Argus.FlowLog.workers/2`);
-    * `:own_ebins` — the directories whose every beam is an input (a
+    * `:own_ebins` — also identifies project-owned extractor inputs. Omission
+      defaults direct inputs to project ownership; an explicit empty list owns
+      none. For file inputs, the owning ebin must match the file directory.
+      These are the directories whose every beam is an input (a
       project's own ebins): not stamped (`Environment.code_index/2`);
     * `:stamps` — each directory's stamp (`app_code`): true (the
       default) to read them, false to leave them unset, or the stamps
@@ -208,6 +211,7 @@ defmodule Argus.Graph do
         Argus.Graph.Code.supplied(db, Keyword.get(opts, :analyses, []))
       ),
       set(db, :analysis_inputs, :all, analysis_inputs(Keyword.get(opts, :analyses, []))),
+      set(db, :own_ebins, :all, Keyword.get(opts, :own_ebins)),
       set(db, :code_index, :all, index),
       set(db, :project_root, :all, Keyword.get_lazy(opts, :project_root, &File.cwd!/0))
       | stamps(db, index, Keyword.get(opts, :stamps, true)) ++
@@ -377,14 +381,8 @@ defmodule Argus.Graph do
     |> Map.new(fn {:ok, result} -> result end)
   end
 
-  @doc "The native input program for one selection, including its declared module references."
-  @spec analysis_program(Roux.Database.t(), term(), term()) :: term()
-  def analysis_program(db, program, analysis) do
-    Roux.Runtime.input(db, :analysis_program, {program, analysis}, default: program)
-  end
-
   defp located_one(db, program, analysis) do
-    Argus.Graph.Locate.located(db, {analysis_program(db, program, analysis), analysis})
+    Argus.Graph.Locate.located(db, {program, analysis})
   rescue
     exception -> {:error, {:crashed, Exception.format_banner(:error, exception, __STACKTRACE__)}}
   end

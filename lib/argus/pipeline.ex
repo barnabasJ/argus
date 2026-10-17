@@ -688,15 +688,20 @@ defmodule Argus.Pipeline do
     data =
       if Enum.any?(extractors, &Argus.Extractor.requires?(&1, :beam)) do
         Map.update(data, :beam, nil, fn
-          <<"FOR1", _::binary>> = bytes -> bytes
-          path when is_binary(path) and path != "" -> Argus.RawFile.read!(path)
-          other -> other
+          bytes_or_path when is_binary(bytes_or_path) and bytes_or_path != "" ->
+            if BeamSpy.BeamFile.beam_data?(bytes_or_path),
+              do: bytes_or_path,
+              else: Argus.RawFile.read!(bytes_or_path)
+
+          other ->
+            other
         end)
       else
         data
       end
 
     data
+    |> Map.put_new(:project?, true)
     |> prepare_indexes()
     |> Map.put(:installed_specs, memo)
     |> with_debug_info(extractors)

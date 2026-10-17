@@ -13,7 +13,7 @@ defmodule Argus.ExternalAnalysisTest do
     File.mkdir_p!(dep)
     beam!(:external_owner, Path.join(own, "external_owner.beam"), [])
 
-    beam!(:external_reference, Path.join(dep, "external_reference.beam"), [
+    beam!(:external_dependency, Path.join(dep, "external_dependency.beam"), [
       {:attribute, 3, :external_value, :first}
     ])
 
@@ -28,7 +28,7 @@ defmodule Argus.ExternalAnalysisTest do
     %{
       project: project,
       store: Roux.Blob.open!(Path.join(dir, "store")),
-      reference: Path.join(dep, "external_reference.beam")
+      reference: Path.join(dep, "external_dependency.beam")
     }
   end
 
@@ -37,6 +37,7 @@ defmodule Argus.ExternalAnalysisTest do
 
     config =
       Argus.Config.load(
+        include_deps: true,
         analyses: [:coupling, selection],
         severity: [external_analysis: :error],
         ignore: [findings: [{:external_analysis, :external_owner}]]
@@ -54,104 +55,26 @@ defmodule Argus.ExternalAnalysisTest do
     refute warm.changed?
     assert warm.located == cold.located
     assert :code.is_loaded(:external_owner) == false
-    assert :code.is_loaded(:external_reference) == false
+    assert :code.is_loaded(:external_dependency) == false
   end
 
-  test "a fresh VM loads every trusted reference producer before probing callbacks", context do
-    expression = """
-    false = :code.is_loaded(Argus.Test.ExternalProducer)
-    selection = {Argus.Test.LateReferenceAnalysis, value: "first"}
-    config = Argus.Config.load(analyses: [selection])
-    result = Argus.Driver.run(config, project: #{inspect(context.project)}, store: #{inspect(context.store.root)})
-    [] = result.notices
-    {:ok, [located]} = Map.fetch!(result.located, selection)
-    "External value first" = located.finding.title
-    false = :code.is_loaded(:external_owner)
-    false = :code.is_loaded(:external_reference)
-    IO.write("late-reference-pass")
-    """
-
-    paths = Enum.flat_map(:code.get_path(), &["-pa", to_string(&1)])
-
-    {output, status} =
-      System.cmd(System.find_executable("elixir"), paths ++ ["-e", expression],
-        stderr_to_stdout: true,
-        env: [{"ERL_FLAGS", "+S 4:4"}]
-      )
-
-    assert status == 0, output
-    assert output =~ "late-reference-pass"
-  end
-
-  test "referenced BEAM changes and lookup absence invalidate a warm graph", context do
-    run = fn value ->
-      selection = {ExternalAnalysis, value: value}
-
-      result =
-        Argus.Driver.run(Argus.Config.load(analyses: [selection]),
-          project: context.project,
-          store: context.store
-        )
-
-      assert result.notices == []
-      assert {:ok, [located]} = result.located[selection]
-      assert located.finding.title == "External value #{value}"
-    end
-
-    run.("first")
-    beam!(:external_reference, context.reference, [{:attribute, 3, :external_value, :second}])
-    run.("second")
+  test "ordinary dependency scan tracks changed and removed inputs", context do
+    selection = {ExternalAnalysis, value: "first"}
+    config = Argus.Config.load(include_deps: true, analyses: [selection])
+    cold = Argus.Driver.run(config, project: context.project, store: context.store)
+    assert {:ok, [_]} = cold.located[selection]
+    beam!(:external_dependency, context.reference, [{:attribute, 3, :external_value, :second}])
+    changed = Argus.Driver.run(config, project: context.project, store: context.store)
+    assert changed.changed?
+    assert {:ok, []} = changed.located[selection]
     File.rm!(context.reference)
-    missing = {ExternalAnalysis, value: "second"}
-
-    failed =
-      Argus.Driver.run(Argus.Config.load(analyses: [:coupling, missing]),
-        project: context.project,
-        store: context.store
-      )
-
-    assert {:ok, []} = failed.located.coupling
-    assert {:ok, []} = failed.located[missing]
-    assert Argus.Driver.Result.degraded(failed) == []
-    assert Argus.Driver.Result.incomplete?(failed)
-
-    assert [
-             {:required_module_input,
-              %{analysis: ^missing, module: :external_reference, reason: :missing}}
-           ] = failed.notices
-
-    config = Argus.Config.load(analyses: [:coupling, missing])
-    notices = Argus.Report.Notice.from_result(failed, config, context.project.root)
-    assert [%{severity: :error, message: message}] = notices
-    assert message =~ "partial results"
-    refute message =~ "reported nothing"
-
-    ExUnit.CaptureIO.capture_io(fn ->
-      result =
-        Argus.CLI.report(
-          failed,
-          [],
-          config,
-          %Argus.CLI.Options{format: :json, fail_above: 0},
-          context.project.root,
-          context.project.root
-        )
-
-      assert result.entries == []
-      assert result.status == 3
-    end)
-
+    removed = Argus.Driver.run(config, project: context.project, store: context.store)
+    assert removed.changed?
+    assert removed.notices == []
+    assert {:ok, []} = removed.located[selection]
     stable = Argus.Driver.run(config, project: context.project, store: context.store)
     refute stable.changed?
-    assert stable.located == failed.located
-    assert stable.notices == failed.notices
-    beam!(:external_reference, context.reference, [{:attribute, 3, :external_value, :second}])
-    recovered = Argus.Driver.run(config, project: context.project, store: context.store)
-    refute Argus.Driver.Result.incomplete?(recovered)
-    assert recovered.notices == []
-    assert {:ok, [located]} = recovered.located[missing]
-    assert located.finding.title == "External value second"
-    assert :code.is_loaded(:external_reference) == false
+    assert stable.located == removed.located
   end
 
   test "external options, included rules and analyzer code invalidate only real changes",
@@ -181,7 +104,7 @@ defmodule Argus.ExternalAnalysisTest do
 
     run = fn value ->
       selection = {module, value: value}
-      config = Argus.Config.load(analyses: [selection])
+      config = Argus.Config.load(include_deps: true, analyses: [selection])
       result = Argus.Driver.run(config, project: context.project, store: context.store)
       assert result.notices == []
       assert Argus.Driver.Result.degraded(result) == []
@@ -239,12 +162,13 @@ defmodule Argus.ExternalAnalysisTest do
   test "a missing external main degrades only its selection", context do
     selection = {ExternalAnalysis, value: "first"}
     missing = {MissingExternalAnalysis, []}
-    config = Argus.Config.load(analyses: [selection, missing])
+    config = Argus.Config.load(include_deps: true, analyses: [selection, missing])
     result = Argus.Driver.run(config, project: context.project, store: context.store)
     assert {:ok, [_]} = result.located[selection]
     assert {:error, {:rules_not_found, _}} = result.located[missing]
     assert [%{analysis: ^missing}] = Argus.Driver.Result.degraded(result)
-    assert [_notice] = Argus.Report.Notice.from_result(result, config, context.project.root)
+    assert [notice] = Argus.Report.Notice.from_result(result, config, context.project.root)
+    assert notice.message =~ "the missing_external analysis degraded"
   end
 
   test "policy inputs reject producer and stage overwrites but retain unused declarations",
@@ -253,7 +177,7 @@ defmodule Argus.ExternalAnalysisTest do
       selection = {ExternalAnalysis, value: "first", facts: %{relation => []}}
 
       result =
-        Argus.Driver.run(Argus.Config.load(analyses: [selection]),
+        Argus.Driver.run(Argus.Config.load(include_deps: true, analyses: [selection]),
           project: context.project,
           store: context.store
         )
@@ -267,7 +191,7 @@ defmodule Argus.ExternalAnalysisTest do
        value: "first", facts: %{external_policy: [["first"]], unused_policy: [["unused"]]}}
 
     result =
-      Argus.Driver.run(Argus.Config.load(analyses: [selection]),
+      Argus.Driver.run(Argus.Config.load(include_deps: true, analyses: [selection]),
         project: context.project,
         store: context.store
       )
@@ -276,23 +200,142 @@ defmodule Argus.ExternalAnalysisTest do
   end
 
   test "explicit selection preserves options and rejects reporting identity collisions" do
-    assert Argus.Config.load(analyses: [{ExternalAnalysis, value: "first"}]).analyses == [
-             {ExternalAnalysis, value: "first"}
-           ]
+    assert Argus.Config.load(include_deps: true, analyses: [{ExternalAnalysis, value: "first"}]).analyses ==
+             [
+               {ExternalAnalysis, value: "first"}
+             ]
 
     assert_raise Argus.ConfigError, fn ->
-      Argus.Config.load(analyses: [ExternalAnalysis, {ExternalAnalysis, value: "first"}])
+      Argus.Config.load(
+        include_deps: true,
+        analyses: [ExternalAnalysis, {ExternalAnalysis, value: "first"}]
+      )
     end
 
     assert_raise Argus.ConfigError, fn ->
-      Argus.Config.load(analyses: [{ExternalAnalysis, [value: "first", value: "second"]}])
+      Argus.Config.load(
+        include_deps: true,
+        analyses: [{ExternalAnalysis, [value: "first", value: "second"]}]
+      )
     end
   end
 
-  test "native inputs preserve project/reference roles and bound cyclic declarations", context do
+  @tag flowlog: false
+  test "external extractors receive original raw and gzip bytes without reopening a file",
+       context do
+    path = Path.join(elem(hd(context.project.apps), 1), "external_owner.beam")
+    bytes = File.read!(path)
+    File.rm!(path)
+
+    for input <- [bytes, :zlib.gzip(bytes)] do
+      assert {:ok, facts} =
+               Argus.Pipeline.extract([input], extractors: [Argus.Test.ExternalByteProducer])
+
+      assert facts.external_beam_digest == [
+               [":external_owner", Argus.Test.ExternalByteProducer.digest(input)]
+             ]
+
+      assert Map.get(facts, :extraction_error, []) == []
+      assert :code.is_loaded(:external_owner) == false
+    end
+  end
+
+  @tag flowlog: false
+  test "project origin changes invalidate module producer facts and preserve input bytes",
+       context do
+    session = Argus.Graph.open(store: context.store)
+
+    try do
+      path = Path.join(elem(hd(context.project.apps), 1), "external_owner.beam")
+      bytes = File.read!(path)
+      [key] = Argus.Graph.set_program(session.db, :test, [path])
+      selection = {ExternalAnalysis, value: "first"}
+
+      read_origin = fn ->
+        assert {:ok, rows} =
+                 Roux.Runtime.query(
+                   session.db,
+                   :extraction_producer,
+                   {key, Argus.Test.ExternalProducer}
+                 )
+
+        assert Argus.Tsv.decode(rows.external_role) == [[":external_owner", "true"]]
+      end
+
+      Argus.Graph.set_environment(session.db, analyses: [selection])
+      read_origin.()
+      Argus.Graph.set_environment(session.db, analyses: [selection], own_ebins: [])
+
+      assert {:ok, rows} =
+               Roux.Runtime.query(
+                 session.db,
+                 :extraction_producer,
+                 {key, Argus.Test.ExternalProducer}
+               )
+
+      assert Argus.Tsv.decode(rows.external_role) == [[":external_owner", "false"]]
+
+      Argus.Graph.set_environment(session.db,
+        analyses: [selection],
+        own_ebins: [Path.dirname(path)]
+      )
+
+      read_origin.()
+      assert File.read!(path) == bytes
+      assert :code.is_loaded(:external_owner) == false
+    after
+      Roux.Session.close(session)
+    end
+  end
+
+  @tag flowlog: false
+  test "in-memory inputs default to project ownership only without explicit ebin restrictions",
+       context do
+    path = Path.join(elem(hd(context.project.apps), 1), "external_owner.beam")
+    bytes = File.read!(path)
+    session = Argus.Graph.open(store: context.store)
+
+    try do
+      [key] = Argus.Graph.set_program(session.db, :memory, [bytes])
+      selection = {ExternalAnalysis, value: "first"}
+
+      for {options, expected} <- [
+            {[], "true"},
+            {[own_ebins: []], "false"},
+            {[own_ebins: [Path.dirname(path)]], "false"},
+            {[], "true"}
+          ] do
+        Argus.Graph.set_environment(session.db, [analyses: [selection]] ++ options)
+
+        assert {:ok, rows} =
+                 Roux.Runtime.query(
+                   session.db,
+                   :extraction_producer,
+                   {key, Argus.Test.ExternalProducer}
+                 )
+
+        assert Argus.Tsv.decode(rows.external_role) == [[":external_owner", expected]]
+      end
+
+      {:ok, data} = Argus.Pipeline.Disassemble.disassemble_path(bytes)
+
+      {:ok, extraction} =
+        Argus.Pipeline.extract_data(data, producers: [Argus.Test.ExternalProducer])
+
+      assert Argus.Tsv.decode(extraction.facts[Argus.Test.ExternalProducer].external_role) ==
+               [[":external_owner", "true"]]
+
+      assert :code.is_loaded(:external_owner) == false
+    after
+      Roux.Session.close(session)
+    end
+  end
+
+  test "ordinary dependency inputs share the project program and expose project origin",
+       context do
     selection = {ExternalAnalysis, value: "first"}
-    config = Argus.Config.load(analyses: [:coupling, selection])
-    manifest = Path.join(context.project.root, "references.manifest")
+    config = Argus.Config.load(include_deps: true, analyses: [:coupling, selection])
+    manifest = Path.join(context.project.root, "origin.manifest")
 
     result =
       Argus.Driver.run(config, project: context.project, store: context.store, manifest: manifest)
@@ -301,52 +344,30 @@ defmodule Argus.ExternalAnalysisTest do
     session = Argus.Graph.open(store: context.store, manifest: manifest)
 
     try do
-      program = Argus.Graph.analysis_program(session.db, :project, selection)
-      assert program != :project
-      assert Argus.Graph.analysis_program(session.db, :project, :coupling) == :project
-
-      assert Enum.sort(Argus.Graph.Relations.rows(session.db, program, :external_role)) == [
-               [":external_owner", "project"],
-               [":external_reference", "reference"]
+      assert Enum.sort(Argus.Graph.Relations.rows(session.db, :project, :external_role)) == [
+               [":external_dependency", "false"],
+               [":external_owner", "true"]
              ]
     after
       Roux.Session.close(session)
     end
 
-    unchanged =
-      Argus.Driver.run(config, project: context.project, store: context.store, manifest: manifest)
-
-    refute unchanged.changed?
-    assert unchanged.located == result.located
-  end
-
-  test "a reference declaration failure degrades only its selection", context do
-    beam!(:external_reference, context.reference, [
-      {:attribute, 3, :external_reference_fail, true}
-    ])
-
-    selection = {ExternalAnalysis, value: "first"}
-
-    result =
-      Argus.Driver.run(Argus.Config.load(analyses: [:coupling, selection]),
+    without_deps =
+      Argus.Driver.run(Argus.Config.load(analyses: [selection]),
         project: context.project,
         store: context.store
       )
 
-    assert {:ok, []} = result.located.coupling
-
-    assert {:error, {:required_module_inputs, {:reference_declaration, ArgumentError}}} =
-             result.located[selection]
-
-    assert [%{analysis: ^selection}] = Argus.Driver.Result.degraded(result)
+    assert {:ok, []} = without_deps.located[selection]
+    assert without_deps.notices == []
   end
 
-  test "referenced producer failures remain native extraction notices", context do
-    beam!(:external_reference, context.reference, [{:attribute, 3, :external_fail, true}])
+  test "dependency producer failures remain native extraction notices", context do
+    beam!(:external_dependency, context.reference, [{:attribute, 3, :external_fail, true}])
     selection = {ExternalAnalysis, value: "first"}
 
     result =
-      Argus.Driver.run(Argus.Config.load(analyses: [:coupling, selection]),
+      Argus.Driver.run(Argus.Config.load(include_deps: true, analyses: [:coupling, selection]),
         project: context.project,
         store: context.store
       )
@@ -354,8 +375,8 @@ defmodule Argus.ExternalAnalysisTest do
     assert {:ok, []} = result.located.coupling
 
     assert Enum.any?(result.notices, fn
-             {:extraction_error, %{module: :external_reference, reason: reason}} ->
-               String.contains?(reason, "referenced fixture producer failed")
+             {:extraction_error, %{module: :external_dependency, reason: reason}} ->
+               String.contains?(reason, "fixture producer failed")
 
              _ ->
                false
@@ -382,7 +403,7 @@ defmodule Argus.ExternalAnalysisTest do
     selection = {ExternalAnalysis, value: "first"}
 
     result =
-      Argus.Driver.run(Argus.Config.load(analyses: [selection]),
+      Argus.Driver.run(Argus.Config.load(include_deps: true, analyses: [selection]),
         project: context.project,
         store: context.store
       )

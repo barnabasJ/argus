@@ -118,7 +118,6 @@ defmodule Mix.Tasks.Compile.Argus do
     failing? = Enum.any?(diagnostics, &(rank(&1.severity) <= threshold))
 
     cond do
-      Argus.Driver.Result.incomplete?(result) -> :error
       failing? -> :error
       result.changed? -> :ok
       true -> :noop

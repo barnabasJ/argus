@@ -21,9 +21,6 @@ defmodule Argus.Driver.Result do
       module (`step: "module"` when the module could not be extracted at
       all): the analyses ran without those facts, and a finding that
       needed them may be missing.
-    * `{:required_module_input, input}` — a selected extractor declared a module
-      that is unavailable. The analysis solved its available inputs and may have
-      partial findings. Frontends must fail the run even when no finding was produced.
     * `{:duplicate, duplicate}` — a module more than one scanned ebin
       defines: which beam is analyzed, and which are passed over.
     * `{:points_to_bounded, leaves}` — the process points-to stage
@@ -47,8 +44,6 @@ defmodule Argus.Driver.Result do
 
   @type notice ::
           :engine_unavailable
-          | {:required_module_input,
-             %{analysis: term(), module: module() | String.t(), reason: atom()}}
           | {:extraction_error, extraction_error()}
           | {:duplicate, duplicate()}
           | {:points_to_bounded, [String.t()]}
@@ -65,11 +60,6 @@ defmodule Argus.Driver.Result do
     for {analysis, {:error, reason}} <- Enum.sort(located),
         do: %{analysis: analysis, reason: reason}
   end
-
-  @doc "Whether required module inputs are unavailable, even when partial findings were produced."
-  @spec incomplete?(t()) :: boolean()
-  def incomplete?(%__MODULE__{notices: notices}),
-    do: Enum.any?(notices, &match?({:required_module_input, _}, &1))
 
   @doc "Whether the run could not solve: the engines are unavailable here."
   @spec engine_unavailable?(t()) :: boolean()

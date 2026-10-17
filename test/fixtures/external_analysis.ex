@@ -3,23 +3,9 @@ defmodule Argus.Test.ExternalProducer do
   @behaviour Argus.Extractor
 
   @impl true
-  def relations, do: [:external_value, :external_reference_link, :external_role]
+  def relations, do: [:external_value, :external_dependency_link, :external_role]
   @impl true
   def requirements, do: [:beam, :typed]
-  @impl true
-  def references(data) do
-    {:ok, {_, chunks}} = :beam_lib.chunks(data.beam, [:attributes])
-
-    if Keyword.get(Keyword.fetch!(chunks, :attributes), :external_reference_fail) == [true],
-      do: raise(ArgumentError, "fixture reference declaration failed")
-
-    case data.module do
-      :external_owner -> [:external_reference]
-      :external_reference -> [:external_owner]
-      _ -> []
-    end
-  end
-
   @impl true
   def extract(data) do
     <<"FOR1", _::binary>> = data.beam
@@ -28,18 +14,18 @@ defmodule Argus.Test.ExternalProducer do
     attributes = Keyword.fetch!(chunks, :attributes)
 
     if Keyword.get(attributes, :external_fail) == [true],
-      do: raise("referenced fixture producer failed")
+      do: raise("fixture producer failed")
 
     value = Keyword.get(attributes, :external_value, [])
 
     %{
       external_value: Enum.map(value, &[inspect(module), Atom.to_string(&1)]),
-      external_reference_link:
+      external_dependency_link:
         if(module == :external_owner,
-          do: [[inspect(module), inspect(:external_reference)]],
+          do: [[inspect(module), inspect(:external_dependency)]],
           else: []
         ),
-      external_role: [[inspect(module), Atom.to_string(Map.get(data, :input_role, :project))]]
+      external_role: [[inspect(module), to_string(Map.fetch!(data, :project?))]]
     }
   end
 end
@@ -109,34 +95,25 @@ defmodule Argus.Test.ExternalDebugBackend do
   end
 end
 
-defmodule Argus.Test.EmptyReferenceProducer do
+defmodule Argus.Test.ExternalByteProducer do
   @moduledoc false
   @behaviour Argus.Extractor
-  @impl true
-  def relations, do: []
-  @impl true
-  def requirements, do: [:beam]
-  @impl true
-  def references(_data), do: []
-  @impl true
-  def extract(_data), do: %{}
-end
 
-defmodule Argus.Test.LateReferenceAnalysis do
-  @moduledoc false
-  @behaviour Argus.Analysis
-  @impl true
-  defdelegate name(), to: Argus.Test.ExternalAnalysis
-  @impl true
-  defdelegate description(), to: Argus.Test.ExternalAnalysis
-  @impl true
-  defdelegate rules_file(), to: Argus.Test.ExternalAnalysis
-  @impl true
-  def extractors, do: [Argus.Test.EmptyReferenceProducer, Argus.Test.ExternalProducer]
-  @impl true
-  defdelegate input_facts(options), to: Argus.Test.ExternalAnalysis
-  @impl true
-  defdelegate output_relations(), to: Argus.Test.ExternalAnalysis
-  @impl true
-  defdelegate finding(relation, row), to: Argus.Test.ExternalAnalysis
+  @impl Argus.Extractor
+  def relations, do: [:external_beam_digest]
+
+  @impl Argus.Extractor
+  def requirements, do: [:beam]
+
+  @impl Argus.Extractor
+  def extract(data) do
+    %{
+      external_beam_digest: [
+        [inspect(data.module), Argus.Test.ExternalByteProducer.digest(data.beam)]
+      ]
+    }
+  end
+
+  @spec digest(bytes :: binary()) :: String.t()
+  def digest(bytes), do: :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)
 end

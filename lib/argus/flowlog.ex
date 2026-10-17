@@ -182,7 +182,7 @@ defmodule Argus.FlowLog do
   them for the relations it loads, and the toolchain's sources (which pin
   FlowLog's revision, and with it what every rule means).
   """
-  @spec program_digest(Path.t() | Program.prepared(), [String.t()] | :all) :: String.t()
+  @spec program_digest(Path.t(), [String.t()] | :all) :: String.t()
   def program_digest(rules_path, relations) do
     declared = Argus.Dl.Program.declared_digest(rules_path, relations)
 
@@ -199,24 +199,19 @@ defmodule Argus.FlowLog do
     path = Path.expand(rules_path)
 
     with {:ok, toolchain} <- toolchain(opts) do
-      prepared = Program.prepare(toolchain, path)
-      prepared_manifest(toolchain, prepared)
-    end
-  end
+      digest = Argus.Dl.Program.program_digest(path)
+      key = {__MODULE__, :manifest, path}
 
-  defp prepared_manifest(toolchain, prepared) do
-    digest = prepared.digest
-    key = {__MODULE__, :manifest, prepared.original}
-
-    case :persistent_term.get(key, nil) do
-      {^digest, toolchain_key, manifest} when toolchain_key == toolchain.key ->
-        {:ok, manifest}
-
-      _ ->
-        with {:ok, manifest} <- Program.inspect(toolchain, prepared) do
-          :persistent_term.put(key, {digest, toolchain.key, manifest})
+      case :persistent_term.get(key, nil) do
+        {^digest, toolchain_key, manifest} when toolchain_key == toolchain.key ->
           {:ok, manifest}
-        end
+
+        _ ->
+          with {:ok, manifest} <- Program.inspect(toolchain, path) do
+            :persistent_term.put(key, {digest, toolchain.key, manifest})
+            {:ok, manifest}
+          end
+      end
     end
   end
 
@@ -258,8 +253,7 @@ defmodule Argus.FlowLog do
           manifest: Program.manifest(),
           kind: :compiled | :generic,
           executable: Path.t(),
-          args: [String.t()],
-          prepared: Program.prepared()
+          args: [String.t()]
         }
 
   @doc """
@@ -282,11 +276,10 @@ defmodule Argus.FlowLog do
     path = Path.expand(rules_path)
 
     with {:ok, toolchain} <- toolchain(opts),
-         prepared = Program.prepare(toolchain, path),
-         {:ok, manifest} <- prepared_manifest(toolchain, prepared),
-         digest = program_digest(prepared, Enum.map(manifest.inputs, & &1.name)),
+         {:ok, manifest} <- manifest(path, opts),
+         digest = program_digest(path, Enum.map(manifest.inputs, & &1.name)),
          {:ok, kind, executable, args} <-
-           runner(engine_mode(opts), toolchain, prepared, digest, manifest, opts) do
+           runner(engine_mode(opts), toolchain, path, digest, manifest, opts) do
       {:ok,
        %{
          toolchain: toolchain,
@@ -294,8 +287,7 @@ defmodule Argus.FlowLog do
          manifest: manifest,
          kind: kind,
          executable: executable,
-         args: args,
-         prepared: prepared
+         args: args
        }}
     end
   end
@@ -337,7 +329,7 @@ defmodule Argus.FlowLog do
   defp runner(:generic, toolchain, path, digest, manifest, _opts) do
     if manifest.generic,
       do: generic(toolchain, path, digest),
-      else: {:error, {:generic_refused, path.original, manifest.generic_refusal}}
+      else: {:error, {:generic_refused, path, manifest.generic_refusal}}
   end
 
   defp runner(:auto, toolchain, path, digest, %{generic: true, limitsize: [_ | _]}, _opts),
@@ -374,7 +366,7 @@ defmodule Argus.FlowLog do
   # engine would be, so a later start for the same digest plans nothing.
   defp generic(toolchain, path, digest) do
     cache = Path.join([Toolchain.engines(toolchain), digest, "generic.plan"])
-    args = ["serve", "--program", path.path, "--digest", digest, "--plan-cache", cache]
+    args = ["serve", "--program", path, "--digest", digest, "--plan-cache", cache]
     {:ok, :generic, Toolchain.tool(toolchain), args}
   end
 
@@ -421,18 +413,10 @@ defmodule Argus.FlowLog do
     Enum.reduce_while(programs, {:ok, []}, fn path, {:ok, acc} ->
       path = Path.expand(path)
 
-      case toolchain(opts) do
-        {:ok, toolchain} ->
-          prepared = Program.prepare(toolchain, path)
-
-          case prepared_manifest(toolchain, prepared) do
-            {:ok, manifest} ->
-              digest = program_digest(prepared, Enum.map(manifest.inputs, & &1.name))
-              {:cont, {:ok, acc ++ [{prepared, digest}]}}
-
-            {:error, _} = error ->
-              {:halt, error}
-          end
+      case manifest(path, opts) do
+        {:ok, manifest} ->
+          digest = program_digest(path, Enum.map(manifest.inputs, & &1.name))
+          {:cont, {:ok, acc ++ [{path, digest}]}}
 
         {:error, _} = error ->
           {:halt, error}
@@ -505,29 +489,16 @@ defmodule Argus.FlowLog do
   def start_engine(built, opts \\ []) do
     profile = if path = opts[:profile], do: ["--profile", Path.expand(path)], else: []
 
-    case Engine.start_link(
-           executable: built.executable,
-           args: built.args ++ profile,
-           digest: built.digest,
-           workers: Keyword.get(opts, :workers, default_workers()),
-           log: Toolchain.run_log(built.toolchain, built.digest)
-         ) do
-      {:error, reason} -> {:error, prepared_error(built, reason)}
-      result -> result
-    end
+    Engine.start_link(
+      executable: built.executable,
+      args: built.args ++ profile,
+      digest: built.digest,
+      workers: Keyword.get(opts, :workers, default_workers()),
+      log: Toolchain.run_log(built.toolchain, built.digest)
+    )
   catch
-    :exit, reason -> {:error, prepared_error(built, reason)}
+    :exit, reason -> {:error, reason}
   end
-
-  defp prepared_error(%{prepared: prepared}, {:flowlog_engine_exit, status, diagnostic})
-       when is_binary(diagnostic),
-       do: {:flowlog_engine_exit, status, Program.original_diagnostic(prepared, diagnostic)}
-
-  defp prepared_error(%{prepared: prepared}, {:flowlog_error, kind, diagnostic})
-       when is_binary(diagnostic),
-       do: {:flowlog_error, kind, Program.original_diagnostic(prepared, diagnostic)}
-
-  defp prepared_error(_built, reason), do: reason
 
   defp facts_inputs(facts_dir, manifest) do
     Enum.reduce_while(manifest.inputs, {:ok, %{}}, fn %{name: name, file: file}, {:ok, acc} ->
