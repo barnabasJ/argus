@@ -117,6 +117,7 @@ defmodule Argus.Driver.PreparationTest do
                                                                                     _errors ->
             assert Input.get(session.db, :program, :marker) == marker
             assert Input.get(session.db, :program, :project) == paths
+            Roux.Session.commit(session, state.meta)
             assert File.regular?(session.manifest)
 
             assert Path.dirname(Path.dirname(session.manifest)) ==
