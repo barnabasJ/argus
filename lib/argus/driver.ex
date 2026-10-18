@@ -4,9 +4,10 @@ defmodule Argus.Driver do
   graph's program, the environment set, the analyses demanded, the
   graph kept for the next run (`Argus.Graph`).
 
-  One session lives for the duration of a run (`Roux.Session`), opened
-  from the project's manifest (`compile.argus` in its state directory)
-  and committed back to it only when the run changed something: a warm
+  Preparation checkpoints bounded batches through `Roux.Session`, opened
+  from the project's manifest (`compile.argus` in its state directory).
+  A checkpoint releases extraction intermediates while keeping the native
+  module proofs and facts. Trace-only warm batches keep their session. A warm
   run with nothing moved validates the graph and writes nothing. What a
   run computes lives in the blob store the manifest names by digest
   (`Argus.Graph.store/0`), shared by every project and worktree on the
@@ -30,7 +31,7 @@ defmodule Argus.Driver do
   tries it again.
   """
 
-  alias Argus.Driver.Result
+  alias Argus.Driver.{Preparation, Result}
   alias Argus.Graph
   alias Roux.Input
 
@@ -79,7 +80,12 @@ defmodule Argus.Driver do
       `manifest_file/1`;
     * `:store` — the blob store, default `Argus.Graph.store/0`;
     * `:force` — start cold, ignoring the manifest (it is written
-      afresh).
+      afresh);
+    * `:preparation_batch_size` — modules prepared before a session
+      checkpoint, default 64. The program always contains every selected
+      module; this bounds extraction demands, not analysis coverage. Native
+      trace/cache validity governs reuse; a large module or solver can still
+      exceed an external memory cap.
   """
   @spec run(Argus.Config.t(), keyword()) :: Result.t()
   def run(%Argus.Config{} = config, opts) do
@@ -87,11 +93,10 @@ defmodule Argus.Driver do
     manifest = Keyword.get_lazy(opts, :manifest, fn -> manifest_file(project) end)
     force? = Keyword.get(opts, :force, false)
 
-    session = Graph.open(store: Keyword.get(opts, :store), manifest: manifest, force: force?)
-    # The session ends with the run, which solves each program once.
-    :ok = Argus.FlowLog.Pool.keep(session.db.supervisor, false)
+    solver? = Argus.FlowLog.available?()
+    options = Keyword.merge(opts, manifest: manifest, force: force?)
 
-    try do
+    initialize = fn session ->
       db = session.db
 
       %{modules: discovered, ignored: ignored, duplicates: duplicates} =
@@ -140,29 +145,39 @@ defmodule Argus.Driver do
           specs_source: Argus.Specs.Source.new(project)
         )
 
-      solver? = Argus.FlowLog.available?()
+      :ok = Graph.set_priors(db, @program, config.priors)
+
+      %{
+        keys: if(solver?, do: keys, else: []),
+        meta: meta,
+        discovered: discovered,
+        duplicates: duplicates
+      }
+    end
+
+    Preparation.run(options, initialize, fn session, state, changed?, earlier_errors ->
+      db = session.db
+      :ok = Argus.FlowLog.Pool.keep(db.supervisor, false)
 
       {located, notices} =
         if solver? do
-          :ok = Graph.set_priors(db, @program, config.priors)
           located = Graph.located(db, @program, config.analyses)
-          {located, extraction_notices(db, discovered) ++ points_to_notices(db)}
+          errors = Enum.uniq(earlier_errors ++ Graph.Findings.extraction_errors(db, @program))
+          {located, extraction_notices(errors, state.discovered) ++ points_to_notices(db)}
         else
           {%{}, [:engine_unavailable]}
         end
 
-      changed? = force? or moved?(session)
-      {_status, _session} = Roux.Session.commit(session, meta)
+      changed? = force? or changed? or moved?(session)
+      {_status, _session} = Roux.Session.commit(session, state.meta)
       _ = collect(session.blob)
 
       %Result{
         located: located,
-        notices: notices ++ Enum.map(duplicates, &{:duplicate, &1}),
+        notices: notices ++ Enum.map(state.duplicates, &{:duplicate, &1}),
         changed?: changed?
       }
-    after
-      Roux.Session.close(session)
-    end
+    end)
   end
 
   # Whether the run moved an input or computed an entry the manifest
@@ -179,10 +194,10 @@ defmodule Argus.Driver do
   # What extraction could not do: each module it could not read at all
   # (named as the scan found its beam: nothing in it says which module it
   # is), and each step it recorded as failing on a module.
-  defp extraction_notices(db, discovered) do
+  defp extraction_notices(errors, discovered) do
     by_path = Map.new(discovered, fn {module, path} -> {Path.expand(path), module} end)
 
-    for error <- Graph.Findings.extraction_errors(db, @program) do
+    for error <- errors do
       module = error.module || Map.get(by_path, error.source)
       name = if error.module == nil and module != nil, do: inspect(module), else: error.source
 

@@ -7,6 +7,12 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Added
 
+- The Driver prepares modules in bounded batches through native session
+  checkpoints. Checkpoints release extraction intermediates and preserve module
+  proofs, all selected inputs and earlier extraction failures. Trace-only warm
+  batches keep their session. `Argus.Driver.run/2` accepts
+  `:preparation_batch_size` (default 64).
+
 - Findings with no module, function or instruction anchor appear in text, JSON
   and compiler diagnostics without a fabricated source location. They participate
   in severity overrides, summary counts and failure thresholds.
