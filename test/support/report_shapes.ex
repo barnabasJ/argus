@@ -71,6 +71,15 @@ defmodule Argus.Test.ReportShapes do
     }
   end
 
+  @doc "A finding intentionally without a code anchor."
+  @spec unlocated() :: Argus.Located.t()
+  def unlocated do
+    finding(:coupling, :warning, "A finding without a code anchor", %{
+      help: ["Review the analysis inputs."]
+    })
+    |> located(nil, nil, nil, [])
+  end
+
   defp file(relative), do: Path.join(@root, relative)
 
   defp finding(analysis, severity, title, attrs) do
@@ -128,7 +137,10 @@ defmodule Argus.Test.ReportShapes do
   end
 
   defp outside(other) do
-    finding(:coupling, :warning, "Placed outside the program", %{related: [frame("f")]})
+    finding(:coupling, :warning, "Placed outside the program", %{
+      module: Shapes.Outside,
+      related: [frame("f")]
+    })
     |> located(nil, nil, nil, [place(other, 8)])
   end
 
@@ -212,7 +224,12 @@ defmodule Argus.Test.ReportShapes do
           String.t()
   def render_diagnostics(diagnostics, show) do
     Enum.map_join(diagnostics, "\n", fn diagnostic ->
-      "#{diagnostic.severity} #{show.(diagnostic.file)}:#{inspect(diagnostic.position)} " <>
+      location =
+        if diagnostic.file,
+          do: "#{show.(diagnostic.file)}:#{inspect(diagnostic.position)} ",
+          else: ""
+
+      "#{diagnostic.severity} #{location}" <>
         "#{diagnostic.message}\n" <> (diagnostic.details || "") <> "\n"
     end)
   end

@@ -13,6 +13,10 @@ defmodule Argus.Findings do
   a fact of the bytecode, `:heuristic` when a prior (`Argus.Priors`)
   supplied one. `analysis` names the concern that reported it.
 
+  A finding may intentionally leave `module`, `mfa` and `instr` nil.
+  Frontends retain it without inventing a source location. An anchored
+  finding outside the selected program is still excluded from reports.
+
   ## Building findings
 
   An analysis module's `finding/2` and `evidence/2` callbacks

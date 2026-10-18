@@ -10,7 +10,8 @@ defmodule Argus.Located do
 
     * `file` is the source file the anchor's module was compiled from
       (nil for a module the program does not hold: a finding anchored
-      outside it has no place to show);
+      outside it has no place to show, and an intentionally unanchored
+      finding also has no file);
     * `line` is the line the anchor's instruction is on, else its
       function's first line, else the line its module is declared on,
       else 1;
@@ -50,7 +51,7 @@ defmodule Argus.Located do
           related: [place()]
         }
 
-  @doc "A place nothing resolved: a module outside the program."
+  @doc "A place with no source location, either unanchored or outside the program."
   @spec nowhere() :: place()
   def nowhere, do: %{file: nil, line: nil, end_line: nil}
 

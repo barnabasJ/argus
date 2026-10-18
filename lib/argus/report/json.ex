@@ -27,7 +27,8 @@ defmodule Argus.Report.Json do
   (argus's layer-3 relations, `priors:` in the configuration), and
   `confidence` is then the prior's probability in thousandths; a
   structural finding's is `null`. `end_line` closes a multi-line span,
-  else `null`.
+  else `null`. A finding without a code anchor has `null` for `file`,
+  `line` and `end_line`.
 
   `title` names the class of the finding and never the instance: the
   values that tell two findings of one class apart (the message, the

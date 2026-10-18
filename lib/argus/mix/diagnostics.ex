@@ -10,6 +10,9 @@ defmodule Argus.Mix.Diagnostics do
   gets the same frame in color (`rendered`'s `ansi`, which `print/1`
   puts on stderr): pentiment leaves the color out when ANSI is off.
 
+  A finding without a code anchor has nil `file` and `source`, and
+  position 0. Its details contain no fabricated source location.
+
   A notice (`Argus.Report.Notice`) — no solver, an analysis that
   degraded, a module extraction could not read — is about the run, not
   the code: its diagnostic is the project's (`mix.exs`, position 0),
@@ -67,7 +70,7 @@ defmodule Argus.Mix.Diagnostics do
         compiler_name: @compiler,
         file: entry.file,
         source: entry.file,
-        position: entry.line,
+        position: entry.line || 0,
         severity: mix_severity(entry.severity),
         message: "[#{Entry.code(entry)}] #{entry.title}",
         details: Pentiment.format(report, sources, colors: false)

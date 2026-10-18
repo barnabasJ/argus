@@ -16,6 +16,8 @@ defmodule Argus.Report.Pentiment do
     on one span of one file are one label, their messages joined in
     order: a cycle's anchor and the frame for the edge it starts sit on
     the same call, and two underlines of one span read as two places.
+  - A finding without an anchor has no primary label or source header.
+    Any located related frames keep their own source labels.
   - `detail` renders as a note, each `help` as a help trailer.
 
   Sources are read from disk as the frame is rendered. A path that is
@@ -49,17 +51,19 @@ defmodule Argus.Report.Pentiment do
   end
 
   defp build_report(entry, rel_file, cwd) do
-    [primary | related] = labels(entry, rel_file, cwd)
+    labels = labels(entry, rel_file, cwd)
 
     entry.severity
     |> report_for(entry.title)
     |> Pentiment.Report.with_code(Entry.code(entry))
-    |> Pentiment.Report.with_source(rel_file)
-    |> Pentiment.Report.with_label(primary)
-    |> Pentiment.Report.with_labels(related)
+    |> with_source(rel_file)
+    |> Pentiment.Report.with_labels(labels)
     |> Pentiment.Report.with_note(entry.detail)
     |> then(fn report -> Enum.reduce(entry.help, report, &Pentiment.Report.with_help(&2, &1)) end)
   end
+
+  defp with_source(report, nil), do: report
+  defp with_source(report, file), do: Pentiment.Report.with_source(report, file)
 
   defp report_for(:error, message), do: Pentiment.Report.error(message)
   defp report_for(:warning, message), do: Pentiment.Report.warning(message)
@@ -67,7 +71,10 @@ defmodule Argus.Report.Pentiment do
 
   # The primary label first, then the related ones, one label per span.
   defp labels(entry, rel_file, cwd) do
-    primary = {{rel_file, span(entry)}, entry.at_label, [style: style(entry)]}
+    primary =
+      if rel_file == nil,
+        do: [],
+        else: [{{rel_file, span(entry)}, entry.at_label, [style: style(entry)]}]
 
     related =
       for related <- entry.related do
@@ -77,7 +84,7 @@ defmodule Argus.Report.Pentiment do
         {{rel_related, span(related)}, related.label, opts}
       end
 
-    [primary | related]
+    (primary ++ related)
     |> Enum.reduce([], fn {place, message, opts}, merged ->
       case List.keyfind(merged, place, 0) do
         {^place, first, first_opts} ->
@@ -135,7 +142,7 @@ defmodule Argus.Report.Pentiment do
   defp build_sources(entry, rel_file, cwd) do
     related_files = for related <- entry.related, do: Report.relative(related.file, cwd)
 
-    for rel <- Enum.uniq([rel_file | related_files]), into: %{} do
+    for rel <- Enum.uniq([rel_file | related_files]), rel != nil, into: %{} do
       {rel, load_source(rel, cwd)}
     end
   end

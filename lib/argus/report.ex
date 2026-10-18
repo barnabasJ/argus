@@ -8,7 +8,8 @@ defmodule Argus.Report do
   `Argus.Driver.Result` carries them) and
 
     1. refines each place from its source (`Argus.Report.Entry`),
-       leaving out a finding outside the program;
+       leaving out an anchored finding outside the program and retaining
+       findings that intentionally have no code anchor;
     2. leaves out the findings the configuration ignores: in a file
        (`ignore: [files: globs]`, matched against the path relative to
        where the run was asked from), or of one analysis in a module or
@@ -91,9 +92,11 @@ defmodule Argus.Report do
   `path` relative to `cwd` when it lies under it, else as it is. macOS
   spells a temporary directory both `/var/...` and `/private/var/...`
   (the one a symlink to the other), and a recorded path may carry
-  either: both spellings are tried.
+  either: both spellings are tried. A nil path stays nil.
   """
-  @spec relative(String.t(), String.t()) :: String.t()
+  @spec relative(String.t() | nil, String.t()) :: String.t() | nil
+  def relative(nil, _cwd), do: nil
+
   def relative(path, cwd) do
     case Path.relative_to(path, cwd) do
       ^path ->
@@ -119,6 +122,8 @@ defmodule Argus.Report do
       _other -> false
     end)
   end
+
+  defp ignored_file?(nil, _config, _cwd), do: false
 
   defp ignored_file?(file, config, cwd) do
     rel = relative(file, cwd)

@@ -5,6 +5,9 @@ defmodule Argus.Report.Text do
   (`Argus.Report.Pentiment`) followed by a blank line, then the summary
   (`N findings (x errors, y warnings, z infos)`).
 
+  A finding without a code anchor keeps its title, detail and help,
+  without a source header. It counts in the summary like any other finding.
+
   Stdout stays free for what a pipe wants (`Argus.Report.Json`).
 
   ## Color

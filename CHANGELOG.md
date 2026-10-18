@@ -7,6 +7,10 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Added
 
+- Findings with no module, function or instruction anchor appear in text, JSON
+  and compiler diagnostics without a fabricated source location. They participate
+  in severity overrides, summary counts and failure thresholds.
+
 - Explicit external `Argus.Analysis` modules and `{module, options}` selections
   in the standard Driver and Graph. Optional `input_facts/1` supplies isolated
   policy rows. Extractor `requirements/0` requests BEAM bytes or typed facts.

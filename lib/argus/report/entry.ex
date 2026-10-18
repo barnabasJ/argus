@@ -1,7 +1,7 @@
 defmodule Argus.Report.Entry do
   @moduledoc """
-  A finding as every frontend shows it: placed in its source file, its
-  place refined by the source, its prose complete.
+  A finding as every frontend shows it, with complete prose and its
+  source location refined when it has an anchor.
 
   An entry is made from an `Argus.Located` (`from_located/1`), which is
   where the bytecode put the finding; the source takes the last step
@@ -18,11 +18,12 @@ defmodule Argus.Report.Entry do
       source shows at the anchor when the finding sits in a guard, and
       `handler` otherwise.
 
-  Each related frame is refined the same way; a frame, or a finding,
-  outside the program (no file) is left out.
+  Each related frame is refined the same way. Anchored findings and
+  frames outside the program are left out. A finding with no module,
+  function or instruction anchor is retained without a source location.
 
-  `file` is absolute; the renderers show it relative to where the run
-  was asked from.
+  `file` is absolute when present; renderers show it relative to where
+  the run was asked from. Unlocated findings have nil `file` and `line`.
   """
 
   @enforce_keys [
@@ -52,8 +53,8 @@ defmodule Argus.Report.Entry do
   @type t :: %__MODULE__{
           analysis: atom(),
           severity: Argus.Findings.severity(),
-          file: String.t(),
-          line: pos_integer(),
+          file: String.t() | nil,
+          line: pos_integer() | nil,
           end_line: pos_integer() | nil,
           title: String.t(),
           at_label: String.t() | nil,
@@ -65,13 +66,22 @@ defmodule Argus.Report.Entry do
         }
 
   @doc """
-  The entry for a placed finding, or nil when the finding is outside
-  the program (it has no file to show).
+  The entry for a finding, including one intentionally without an anchor.
+  Returns nil for an anchored finding outside the selected program.
   """
   @spec from_located(Argus.Located.t()) :: t() | nil
-  def from_located(%Argus.Located{file: nil}), do: nil
+  def from_located(
+        %Argus.Located{
+          file: nil,
+          finding: %{module: nil, mfa: nil, instr: nil}
+        } = located
+      ),
+      do: entry(located)
 
-  def from_located(%Argus.Located{} = located) do
+  def from_located(%Argus.Located{file: nil}), do: nil
+  def from_located(%Argus.Located{} = located), do: entry(located)
+
+  defp entry(located) do
     %Argus.Located{finding: finding} = refined = Argus.Located.refine(located)
 
     %__MODULE__{
