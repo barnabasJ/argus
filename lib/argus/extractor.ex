@@ -39,6 +39,8 @@ defmodule Argus.Extractor do
 
   `project?` identifies modules from the project applications. Direct pipeline inputs
   default to `true`; explicitly empty project ebin paths identify no project modules.
+  `application` is the owning OTP application from the frontend's selected paths, or nil
+  when the supplied input has no indexed application. Extractors need no path lookup.
 
   `installed_specs` caches `Argus.Specs.installed/2` for the run. The pipeline
   reads `debug_info` for its built-in readers and extractors requiring `:beam`.
@@ -51,6 +53,7 @@ defmodule Argus.Extractor do
           optional(:imports) => list(),
           optional(:beam) => binary(),
           optional(:project?) => boolean(),
+          optional(:application) => atom() | nil,
           optional(:line_table) => map(),
           optional(:call_sites) => [Argus.Extractor.CallSites.site()],
           optional(:cfg) => %{{String.t(), arity()} => Argus.Cfg.Function.t()},

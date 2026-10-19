@@ -7,6 +7,11 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Added
 
+- Extractors receive optional `application` identity from the frontend's selected
+  application paths. Application remapping invalidates affected extractor results.
+- Typed extractor inputs include native resolved applies and higher-order callback
+  sites, so external extractors can reuse those facts without recomputing them.
+
 - The Driver prepares modules in bounded batches through native session
   checkpoints. Checkpoints release extraction intermediates and preserve module
   proofs, all selected inputs and earlier extraction failures. Trace-only warm
@@ -22,6 +27,11 @@ which a change appeared; older names and APIs may have changed since then.
   policy rows. Extractor `requirements/0` requests BEAM bytes or typed facts.
 - Extractor module data identifies project application inputs with `project?`.
   Dependency inputs use the existing `include_deps` configuration and native scan.
+
+### Fixed
+
+- Floating-point register writes no longer abort binary decode origin extraction.
+  The value-flow pass only tracks supported x/y slots.
 
 ## 0.24.0 — 2026-10-15
 

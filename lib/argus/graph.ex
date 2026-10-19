@@ -188,6 +188,9 @@ defmodule Argus.Graph do
       (no manifest), whose queries all run afresh, has no use for it:
       what it finds in the store it verifies through the files
       themselves (`Roux.Stamp`).
+    * `:application_ebins` — `{application, ebin}` pairs already selected by
+      the frontend, used to identify each extractor input's OTP application.
+      Omission leaves application identity unknown.
   """
   @spec set_environment(Roux.Database.t(), keyword()) :: boolean()
   def set_environment(db, opts \\ []) do
@@ -212,6 +215,14 @@ defmodule Argus.Graph do
       ),
       set(db, :analysis_inputs, :all, analysis_inputs(Keyword.get(opts, :analyses, []))),
       set(db, :own_ebins, :all, Keyword.get(opts, :own_ebins)),
+      set(
+        db,
+        :application_ebins,
+        :all,
+        Map.new(Keyword.get(opts, :application_ebins, []), fn {app, ebin} ->
+          {Path.expand(ebin), app}
+        end)
+      ),
       set(db, :code_index, :all, index),
       set(db, :project_root, :all, Keyword.get_lazy(opts, :project_root, &File.cwd!/0))
       | stamps(db, index, Keyword.get(opts, :stamps, true)) ++

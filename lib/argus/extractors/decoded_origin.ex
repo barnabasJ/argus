@@ -199,9 +199,12 @@ defmodule Argus.Extractors.DecodedOrigin do
         at = fn i -> ValueFlow.inputs(reads, outs, i, &{:param, &1}) end
         inputs = at.(idx)
 
+        # ValueFlow tracks x/y slots. Floating-point registers have no slot
+        # spelling and are outside this value-flow model.
         writes =
           for reg <- Instr.defs(instr),
-              do: {Instr.spell_slot(reg), transfer(instr, idx, reg, inputs, at, function, ctx)}
+              slot when is_binary(slot) <- [Instr.spell_slot(reg)],
+              do: {slot, transfer(instr, idx, reg, inputs, at, function, ctx)}
 
         {writes, nil, []}
       end)

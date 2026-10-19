@@ -21,6 +21,8 @@ defmodule Argus.Graph.Inputs do
       (the source's, or the code path's) outside OTP and Elixir, and
       what the specs read from there are named by (`app_code`):
       `%{dir => name}`.
+    * `application_ebins` (`:all`) — `%{absolute_ebin => application}` from
+      the frontend's selected application paths, for extractor ownership.
     * `app_code` (a `code_index` name) — a digest of the stamps (size,
       modification time, inode) of every beam in that directory: it
       moves when a beam there is rebuilt, and a reader of a module's
@@ -49,6 +51,7 @@ defmodule Argus.Graph.Inputs do
   definput(:project_root, durability: :high)
   definput(:specs_source, durability: :high)
   definput(:own_ebins, durability: :high)
+  definput(:application_ebins, durability: :high)
   definput(:code_index, durability: :high)
   definput(:app_code, durability: :high)
   definput(:solver, durability: :high)

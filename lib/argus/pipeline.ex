@@ -82,7 +82,7 @@ defmodule Argus.Pipeline do
   @typed_relations ~w(
     instruction next def use jump branch select_branch label_at bs_start
     try_start bif_call function_def function_entry tail_call remote_call
-    local_call dynamic_call spawn_call
+    local_call dynamic_call spawn_call resolved_apply fun_handed
   )a
 
   @doc """

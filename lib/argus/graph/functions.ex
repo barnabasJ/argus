@@ -208,7 +208,8 @@ defmodule Argus.Graph.Functions do
              {name, arity, 0}
            end),
          imports: data.imports,
-         project?: project?(db, module)
+         project?: project?(db, module),
+         application: application(db, module)
        }}
     end
   end
@@ -432,13 +433,26 @@ defmodule Argus.Graph.Functions do
   # Debug-info, compile-info and docs consumers still need the original BEAM. They
   # have their own producer query, so this does not invalidate other producers.
   defp with_chunks(db, module, producer, data) do
-    data = Map.put(data, :project?, project?(db, module))
+    data =
+      data
+      |> Map.put(:project?, project?(db, module))
+      |> Map.put(:application, application(db, module))
 
     if producer in @chunk_readers or Argus.Extractor.requires?(producer, :beam) do
       {:ok, beam} = R.query(db, :module_beam, module)
       Map.put(data, :beam, Frontend.bytes(beam))
     else
       data
+    end
+  end
+
+  defp application(db, module) do
+    with {:ok, %{path: path}} when is_binary(path) <- R.query(db, :module_beam, module) do
+      db
+      |> R.input(:application_ebins, :all, default: %{})
+      |> Map.get(Path.dirname(Path.expand(path)))
+    else
+      _ -> nil
     end
   end
 
