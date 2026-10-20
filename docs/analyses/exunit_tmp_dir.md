@@ -34,6 +34,14 @@ module in full. `--only`, tag, test-name, and line filters do not remove
 functions from its BEAM. Filtered and skipped test functions in a compiled
 module remain in the analysis.
 
+Test files compile afresh on every invocation. Argus does not retain a separate
+cache of compiled tests or skip unchanged `.exs` files. The temporary capture
+uses the same path between invocations, so unchanged BEAM contents can reuse
+the native graph manifest, extraction facts, and Datalog results. Mix's native
+build lock covers compilation, capture, analysis, and cleanup. Every capture
+starts empty and is removed afterward. Changed, deleted, or unselected modules
+remain subject to the normal native input synchronization.
+
 The task does not execute test bodies, `setup`, or `setup_all`. It does execute
 application startup, `test_helper.exs`, and other top-level compilation code. It
 is not a sandbox for untrusted tests. The task hides dry-run test listings and

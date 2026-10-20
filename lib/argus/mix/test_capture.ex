@@ -13,17 +13,23 @@ defmodule Argus.Mix.TestCapture do
       Mix.raise("argus.test capture is already active in this VM")
     end
 
-    require_fresh_tests!()
+    # The capture is mutable while Mix compiles it. Keep its path stable for
+    # native graph inputs and serialize its entire lifetime with Mix's own
+    # cross-process, reentrant build lock.
+    Mix.Project.with_build_lock(fn ->
+      require_fresh_tests!()
+      capture(test_args, analyze)
+    end)
+  end
+
+  defp capture(test_args, analyze) do
     {test_switches, file_arguments} = Enum.split_while(test_args, &(&1 != "--"))
     MixProject.compile!((test_switches -- ["--warnings-as-errors"]) ++ file_arguments)
 
-    directory =
-      Path.join(
-        Mix.Project.manifest_path(),
-        "argus-test-capture-#{:os.getpid()}-#{System.unique_integer([:positive])}"
-      )
+    directory = Path.join(Mix.Project.manifest_path(), "argus-test-capture")
 
     File.mkdir_p!(Mix.Project.manifest_path())
+    File.rm_rf!(directory)
     File.mkdir!(directory)
     compiler_options = Code.compiler_options()
     original_test_options = Mix.Project.config()[:test_elixirc_options]

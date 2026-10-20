@@ -45,6 +45,10 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Fixed
 
+- `mix argus.test` uses a stable temporary capture path under Mix's native build
+  lock. Repeated runs can reuse unchanged native analysis inputs instead of
+  invalidating ownership and module paths. Test files still compile afresh;
+  captures start empty and are removed after analysis or failure.
 - Explicit analysis selections extract only declared producers and native
   providers of the rules' input relations, including shared stages. Changing
   selections reuses valid producer caches and fills missing facts. Pipeline

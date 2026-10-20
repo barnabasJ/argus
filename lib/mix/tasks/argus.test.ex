@@ -13,8 +13,11 @@ defmodule Mix.Tasks.Argus.Test do
   Test files compile one at a time by default to reduce peak capture memory. Pass
   `--max-requires N` after `--` to use native parallel test compilation.
   Without paths, Mix selects the configured test paths and patterns. Each run
-  captures only that invocation's compiled test and helper modules. It never
-  reuses a previous capture, including after compilation fails or files change.
+  captures only that invocation's compiled test and helper modules. Test files
+  compile afresh on every invocation; captured BEAMs are not retained. A stable
+  temporary capture path lets the normal Argus manifest and content caches reuse
+  unchanged analysis work. Mix's native build lock protects capture through
+  analysis and cleanup. Failed compilation never analyzes a previous capture.
   Deleted files and files omitted by a partial selection are not analyzed.
   Every function in a compiled module is analyzed, even if line, tag, or name
   filters would prevent ExUnit from running some tests in that module.

@@ -282,7 +282,11 @@ function in a captured module is analyzed; line, tag, and name filters do not
 exclude individual test functions from analysis. Filtered and skipped test
 functions in those modules remain in the analysis. Captures are fresh each run
 and removed afterwards; failed compilation never analyzes partial or previous
-captures. The test analysis has a separate native manifest.
+captures. The test analysis has a separate native manifest. Test files still
+compile afresh each invocation. The temporary capture uses a stable path so
+unchanged BEAMs retain their native graph identities and cached analysis work.
+Mix's native build lock serializes compilation, capture, analysis, and cleanup
+for the same build path. No separate cache of compiled test files is kept.
 
 Test bodies and `setup`/`setup_all` callbacks do not run. Application startup,
 `test_helper.exs`, and top-level compilation code do execute. This command is

@@ -31,6 +31,49 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
     refute File.exists?(snapshot.directory)
   end
 
+  @tag :flowlog
+  test "fresh test compilation retains native analysis reuse across fresh VMs", %{tmp_dir: root} do
+    fixture!(root)
+    store = Path.join(root, "argus-store")
+    cold = analyzed_capture!(root, store)
+    File.rm!(Path.join(root, "helper-initialized"))
+    warm = analyzed_capture!(root, store)
+
+    assert cold.directory == warm.directory
+    assert cold.initialized
+    assert warm.initialized
+    assert cold.located == warm.located
+    assert cold.notices == []
+    assert warm.notices == []
+    refute warm.changed?
+
+    for event <- [
+          [:argus, :graph, :pack],
+          [:argus, :graph, :extraction_compute],
+          [:argus, :flowlog, :engine, :commit]
+        ] do
+      assert [_ | _] = Enum.filter(cold.events, &(&1 == event))
+    end
+
+    assert warm.events == []
+    refute File.exists?(warm.directory)
+    refute File.exists?(Path.join(root, "body-ran"))
+  end
+
+  test "an interrupted capture cannot leak old modules into the next run", %{tmp_dir: root} do
+    fixture!(root)
+    first = capture!(root, [])
+    File.mkdir_p!(first.directory)
+    File.write!(Path.join(first.directory, "Elixir.CaptureFixture.Stale.beam"), "stale capture")
+
+    current = capture!(root, ["test/second_test.exs"])
+    assert current.directory == first.directory
+    assert current.modules[CaptureFixture.SecondTest]
+    refute current.modules[CaptureFixture.Stale]
+    refute current.modules[CaptureFixture.FirstTest]
+    refute File.exists?(current.directory)
+  end
+
   test "changed and deleted tests cannot survive the next capture", %{tmp_dir: root} do
     fixture!(root)
     assert capture!(root, []).modules[CaptureFixture.FirstTest]
@@ -44,6 +87,7 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
 
   test "a partial native test selection captures only selected tests", %{tmp_dir: root} do
     fixture!(root)
+    assert capture!(root, []).modules[CaptureFixture.FirstTest]
     snapshot = capture!(root, ["test/second_test.exs"])
     assert snapshot.modules[CaptureFixture.SecondTest]
     assert snapshot.modules[CaptureFixture.Helper]
@@ -88,7 +132,7 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
         end
 
         refute File.exists?("analysis-ran")
-        assert Path.wildcard(Path.join(Mix.Project.manifest_path(), "argus-test-capture-*")) == []
+        assert Path.wildcard(Path.join(Mix.Project.manifest_path(), "argus-test-capture*")) == []
         refute Mix.Project.config()[:test_elixirc_options]
       end)
     end)
@@ -186,7 +230,7 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
 
         assert Code.compiler_options() == original
         assert Mix.Project.config()[:test_elixirc_options] == test_options
-        assert Path.wildcard(Path.join(Mix.Project.manifest_path(), "argus-test-capture-*")) == []
+        assert Path.wildcard(Path.join(Mix.Project.manifest_path(), "argus-test-capture*")) == []
       end)
     end)
   end
@@ -301,7 +345,7 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
         assert output =~ "warning[argus.exunit_tmp_dir]"
         assert output =~ "test/first_test.exs"
         assert output =~ "setup_all runs before per-test directories exist"
-        assert Path.wildcard(Path.join(Mix.Project.manifest_path(), "argus-test-capture-*")) == []
+        assert Path.wildcard(Path.join(Mix.Project.manifest_path(), "argus-test-capture*")) == []
       end)
     end)
   end
@@ -436,6 +480,64 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
         assert JSON.decode!(stdout) == []
         assert stderr =~ "the missing_external analysis degraded and reported nothing"
         assert stderr =~ "unavailable.dl"
+      end)
+    end)
+  end
+
+  @doc false
+  @spec record_capture_event(
+          event :: [atom()],
+          measurements :: map(),
+          metadata :: map(),
+          table :: :ets.tid()
+        ) :: true
+  def record_capture_event(event, _measurements, _metadata, table),
+    do: :ets.insert(table, {event})
+
+  defp analyzed_capture!(root, store) do
+    peer = Peer.start!()
+
+    Peer.run(peer, fn ->
+      Mix.Project.in_project(:capture_fixture, root, fn _ ->
+        TestCapture.run([], fn project ->
+          table = :ets.new(:capture_analysis_events, [:public, :duplicate_bag])
+          handler = "capture-analysis-#{System.unique_integer([:positive])}"
+
+          :ok =
+            :telemetry.attach_many(
+              handler,
+              [
+                [:argus, :graph, :pack],
+                [:argus, :graph, :extraction_compute],
+                [:argus, :flowlog, :engine, :commit]
+              ],
+              &__MODULE__.record_capture_event/4,
+              table
+            )
+
+          try do
+            result =
+              Argus.Driver.run(Argus.Config.load(analyses: [:exunit_tmp_dir]),
+                project: project,
+                store: store
+              )
+
+            assert {:ok, []} = result.located.exunit_tmp_dir
+            {_, directory} = List.first(project.apps)
+
+            %{
+              directory: directory,
+              initialized: File.exists?("helper-initialized"),
+              located: result.located,
+              notices: result.notices,
+              changed?: result.changed?,
+              events: for({event} <- :ets.tab2list(table), do: event)
+            }
+          after
+            :telemetry.detach(handler)
+            :ets.delete(table)
+          end
+        end)
       end)
     end)
   end
