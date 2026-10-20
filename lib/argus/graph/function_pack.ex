@@ -8,10 +8,12 @@ defmodule Argus.Graph.FunctionPack do
   alias Argus.Graph.{ModuleTrace, Pack}
   alias Roux.Runtime, as: R
 
+  # Module traces publish their complete dependency frontier into these memos.
+  # Ordinary Roux validation can therefore reuse unchanged packs without
+  # decoding trace histories. Pack.read_chunks still repairs missing segments.
   defquery :module_facts,
     key: module,
     store: :blob,
-    revalidate: :execute,
     timeout: &__MODULE__.timeout/0,
     around_demand: {__MODULE__, :packed},
     on_timeout: &__MODULE__.timed_out/2,
@@ -25,7 +27,6 @@ defmodule Argus.Graph.FunctionPack do
   defquery :module_in_process,
     key: module,
     store: :blob,
-    revalidate: :execute,
     timeout: &__MODULE__.timeout/0,
     around_demand: {__MODULE__, :packed},
     on_timeout: &__MODULE__.timed_out/2,

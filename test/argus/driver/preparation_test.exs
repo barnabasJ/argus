@@ -3,7 +3,7 @@ defmodule Argus.Driver.PreparationTest do
 
   alias Argus.Driver.Preparation
   alias Argus.Graph
-  alias Roux.{Blob, Input, Memo, Runtime}
+  alias Roux.{Blob, Input, Memo, QueryLog, Runtime}
 
   @moduletag :tmp_dir
   @moduletag timeout: 120_000
@@ -21,6 +21,27 @@ defmodule Argus.Driver.PreparationTest do
 
     independent = run(Path.join(dir, "independent"), paths, 64)
     assert independent.packs == first.packs
+  end
+
+  test "unchanged module packs validate without replaying extraction traces", %{tmp_dir: dir} do
+    paths = fixtures(dir)
+    first = run(dir, paths, 1)
+    log = QueryLog.start(:all)
+
+    try do
+      warm = run(dir, paths, 1)
+      assert warm.packs == first.packs
+      refute warm.changed
+
+      for query <- [:module_facts, :module_in_process] do
+        assert Enum.filter(QueryLog.executions(log, query), &(&1 in paths)) == []
+
+        assert Enum.sort(Enum.filter(QueryLog.hits(log, query), &(&1 in paths))) ==
+                 Enum.sort(paths)
+      end
+    after
+      QueryLog.stop(log)
+    end
   end
 
   test "a changed beam and its revert survive session checkpoints", %{tmp_dir: dir} do

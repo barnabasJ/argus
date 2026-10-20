@@ -30,6 +30,11 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Fixed
 
+- Unchanged module extraction packs use ordinary dependency validation instead
+  of replaying their stored extraction traces on each restored run. Input,
+  schema and producer changes still invalidate the packs; missing segments
+  still rebuild through the existing repair path.
+
 - Floating-point register writes no longer abort binary decode origin extraction.
   The value-flow pass only tracks supported x/y slots.
 
