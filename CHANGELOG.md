@@ -7,6 +7,17 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Added
 
+- `mix argus.test` captures test and helper BEAMs through native Mix dry-run
+  compilation, then uses the normal Argus analysis and reporting pipeline. Test,
+  `setup`, and `setup_all` bodies do not execute; initialization code still does.
+
+- `exunit_tmp_dir` warns when ExUnit tests or callbacks create OS temporary
+  directories outside ExUnit's per-test lifecycle. It follows paths through
+  helpers and distinguishes `setup_all`, where `context.tmp_dir` is unavailable.
+  Shared schema relations `tmp_dir_argument` and `tmp_dir_return` describe path
+  provenance for call arguments and returned values. The runnable example covers
+  manual roots, valid child directories, and named and inline `setup_all`.
+
 - `include_deps` accepts an application list as well as booleans. Only named
   dependencies enter extraction; all dependency paths remain available for spec
   resolution. Unknown names fail discovery instead of reducing coverage silently.

@@ -17,6 +17,16 @@ defmodule Argus.Analysis.SetsTest do
     assert Enum.sort(all ++ [:coverage]) == Enum.sort(Catalog.names())
   end
 
+  test "the ExUnit concern is explicit or all, outside the runtime and default sets" do
+    assert {:ok, all} = Sets.set(:all)
+    assert {:ok, default} = Sets.set(:default)
+    assert {:ok, otp} = Sets.set(:otp)
+    assert :exunit_tmp_dir in all
+    refute :exunit_tmp_dir in default
+    refute :exunit_tmp_dir in otp
+    assert {:ok, [Argus.Analyses.ExUnitTmpDir]} = Sets.resolve([:exunit_tmp_dir])
+  end
+
   test "the races concern is in the default set" do
     assert {:ok, default} = Sets.set(:default)
     assert :races in default

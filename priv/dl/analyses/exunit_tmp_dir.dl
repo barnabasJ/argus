@@ -1,0 +1,100 @@
+// Detect manually created temporary roots in ExUnit lifecycle code. A global
+// filesystem helper is relevant only when a selected ExUnit entry reaches it.
+.include "../clientlib/imports.dl"
+.include "../clientlib/tooling.dl"
+.output tooling
+
+.decl exunit_case(mod: symbol)
+exunit_case(mod) :- function_def(_, mod, "__ex_unit__", 0, 1).
+
+.decl tmp_entry(entry: symbol, phase: symbol)
+tmp_entry(entry, "test") :-
+  exunit_case(mod), function_def(entry, mod, name, 1, 1), match("test .*", name).
+// Named callbacks are called by the generated two-clause dispatcher. ClauseCall
+// keeps :setup and :setup_all separate even when their callback names are arbitrary.
+tmp_entry(entry, "setup") :-
+  exunit_case(mod), function_def(dispatch, mod, "__ex_unit__", 2, _),
+  call_instr(dispatch, entry, site), clause_call(site, dispatch, ":setup"), tmp_callback(entry, mod).
+tmp_entry(entry, "setup_all") :-
+  exunit_case(mod), function_def(dispatch, mod, "__ex_unit__", 2, _),
+  call_instr(dispatch, entry, site), clause_call(site, dispatch, ":setup_all"), tmp_callback(entry, mod).
+
+// ExUnit's dispatcher also calls framework merge/noop helpers. They are not
+// authored setup callbacks. Keep same-case callbacks and explicit test support.
+.decl tmp_callback(func: symbol, case_mod: symbol)
+tmp_callback(func, mod) :- function_def(func, mod, _, _, _), exunit_case(mod).
+tmp_callback(func, case_mod) :-
+  exunit_case(case_mod), function_def(func, mod, _, _, _),
+  tooling_module(mod, "test_support"), mod != "ExUnit.Callbacks".
+
+.decl tmp_reach(entry: symbol, phase: symbol, func: symbol)
+.init tmp_lifecycle_reach = ForwardCallReach
+tmp_lifecycle_reach.root(entry, entry) :- tmp_entry(entry, _).
+tmp_reach(entry, phase, func) :- tmp_entry(entry, phase), tmp_lifecycle_reach.reaches(entry, func).
+
+// A callee's return parameters are summaries, not values pooled across calls.
+// Instantiate them at the concrete call site so a discarded manual path cannot
+// taint another invocation of the same helper with context.tmp_dir.
+.decl tmp_return_root(func: symbol, root: symbol)
+.decl tmp_return_param(func: symbol, param: symbol)
+.decl tmp_call_root(site: symbol, root: symbol)
+.decl tmp_call_param(site: symbol, func: symbol, param: symbol)
+
+tmp_return_root(func, root) :- tmp_dir_return(func, "root", root).
+tmp_return_param(func, param) :- tmp_dir_return(func, "param", param).
+tmp_return_root(func, root) :- tmp_dir_return(func, "call", site), tmp_call_root(site, root).
+tmp_return_param(func, param) :- tmp_dir_return(func, "call", site), tmp_call_param(site, func, param).
+
+tmp_call_root(site, root) :- call_instr(_, callee, site), tmp_return_root(callee, root).
+tmp_call_root(site, root) :-
+  call_instr(_, callee, site), tmp_return_param(callee, param),
+  tmp_dir_argument(site, _, callee, pos, "root", root), param = to_string(pos).
+tmp_call_root(site, root) :-
+  call_instr(_, callee, site), tmp_return_param(callee, param),
+  tmp_dir_argument(site, _, callee, pos, "call", source), param = to_string(pos), tmp_call_root(source, root).
+tmp_call_param(site, func, param) :-
+  call_instr(func, callee, site), tmp_return_param(callee, returned),
+  tmp_dir_argument(site, func, callee, pos, "param", param), returned = to_string(pos).
+tmp_call_param(site, func, param) :-
+  call_instr(func, callee, site), tmp_return_param(callee, returned),
+  tmp_dir_argument(site, func, callee, pos, "call", source), returned = to_string(pos),
+  tmp_call_param(source, func, param).
+
+// Entry-scoped parameter flow follows helpers that perform creation themselves.
+// Roots in a different test or a different callback phase never meet here.
+.decl tmp_argument_root(entry: symbol, phase: symbol, site: symbol, func: symbol, callee: symbol, pos: number, root: symbol)
+.decl tmp_parameter(entry: symbol, phase: symbol, func: symbol, param: symbol, root: symbol)
+
+tmp_argument_root(entry, phase, site, func, callee, pos, root) :-
+  tmp_reach(entry, phase, func), tmp_dir_argument(site, func, callee, pos, "root", root).
+tmp_argument_root(entry, phase, site, func, callee, pos, root) :-
+  tmp_reach(entry, phase, func), tmp_dir_argument(site, func, callee, pos, "call", source),
+  tmp_call_root(source, root).
+tmp_argument_root(entry, phase, site, func, callee, pos, root) :-
+  tmp_reach(entry, phase, func), tmp_dir_argument(site, func, callee, pos, "call", source),
+  tmp_call_param(source, func, param), tmp_parameter(entry, phase, func, param, root).
+tmp_argument_root(entry, phase, site, func, callee, pos, root) :-
+  tmp_reach(entry, phase, func), tmp_dir_argument(site, func, callee, pos, "param", source),
+  tmp_parameter(entry, phase, func, source, root).
+
+tmp_parameter(entry, phase, callee, param, root) :-
+  tmp_argument_root(entry, phase, _, _, callee, pos, root),
+  function_def(callee, _, _, _, _), param = to_string(pos).
+
+// Calling ordinary product behavior from a test does not make its filesystem
+// operations test setup. The sink belongs to a case or native test-support module.
+.decl tmp_test_owner(func: symbol)
+tmp_test_owner(func) :- function_def(func, mod, _, _, _), exunit_case(mod).
+tmp_test_owner(func) :- function_def(func, mod, _, _, _), tooling_module(mod, "test_support").
+
+.decl tmp_directory_create(callee: symbol)
+tmp_directory_create("File:mkdir/1").
+tmp_directory_create("File:mkdir!/1").
+tmp_directory_create("File:mkdir_p/1").
+tmp_directory_create("File:mkdir_p!/1").
+tmp_directory_create(":file:make_dir/1").
+
+.decl exunit_manual_tmp_dir(entry: symbol, phase: symbol, func: symbol, site: symbol, root: symbol)
+exunit_manual_tmp_dir(entry, phase, func, site, root) :-
+  tmp_argument_root(entry, phase, site, func, callee, 0, root), tmp_directory_create(callee), tmp_test_owner(func).
+.output exunit_manual_tmp_dir

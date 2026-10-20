@@ -12,7 +12,8 @@ defmodule Argus.Analysis.Sets do
   A set names analyses a caller runs together: `:all` (every built-in
   but `:coverage`, which measures the extractor pipeline rather than the
   analyzed code), `:default` (what the `:argus` compiler runs without configuration),
-  `:security`, `:effects` and `:otp` (everything else). A selection is a
+  `:security`, `:effects` and `:otp` (the remaining runtime concerns, excluding
+  the opt-in ExUnit lifecycle rule). A selection is a
   set or a list of concern names; a name that is not a built-in is an
   unknown analysis.
 
@@ -25,8 +26,8 @@ defmodule Argus.Analysis.Sets do
   The named sets of analyses `Argus.run_analyses/2` accepts in place of a
   list: `:all` (every built-in but `:coverage`, which measures the
   extractor pipeline rather than the code), `:default` (what the `:argus`
-  compiler runs without configuration), `:security`, `:effects` and `:otp` (everything
-  else).
+  compiler runs without configuration), `:security`, `:effects` and `:otp`
+  (the remaining runtime concerns, excluding `:exunit_tmp_dir`).
   """
   @spec sets() :: %{atom() => [atom()]}
   def sets do
@@ -39,7 +40,7 @@ defmodule Argus.Analysis.Sets do
       default: Enum.filter(default_set(), &(&1 in all)),
       security: security,
       effects: effects,
-      otp: all -- (security ++ effects)
+      otp: all -- (security ++ effects ++ [:exunit_tmp_dir])
     }
   end
 

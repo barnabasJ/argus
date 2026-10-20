@@ -18,7 +18,7 @@ defmodule Argus.Test.Graph do
   # every analysis in `:all` has rows to agree on.
   @parity_sources ~w(
     call_cycle_fixture.ex check_then_act_fixture.ex consistency_fixture.ex
-    dynamic_supervisor_fixture.ex ets_fixture.ex gen_statem_fixture.ex
+    dynamic_supervisor_fixture.ex ets_fixture.ex exunit_tmp_dir_fixture.ex gen_statem_fixture.ex
     pid_flow_fixture.ex secret_fixture.ex shutdown_fixture.ex
     supervision_fixture.ex taint_fixture.ex timeout_chain_fixture.ex
     transaction_fixture.ex unreceived_message_fixture.ex unsafe_task_fixture.ex
@@ -27,6 +27,9 @@ defmodule Argus.Test.Graph do
     erl/padl2010_registered.erl erl/padl2010_snmp_shadow_table.erl
     erl/padl2010_time_stamp.erl
   )
+
+  # This helper keeps its real test/support ownership for the ExUnit analysis.
+  @parity_support_sources ~w(exunit_tmp_dir_helpers.ex)
 
   @doc """
   The parity set: `module => beam_path` for every module argus's own
@@ -65,7 +68,10 @@ defmodule Argus.Test.Graph do
   # the parity sources: read from the beam, not the loaded module, so no
   # fixture is loaded to be asked.
   defp find_parity do
-    suffixes = Enum.map(@parity_sources, &("/test/fixtures/" <> &1))
+    suffixes =
+      Enum.map(@parity_sources, &("/test/fixtures/" <> &1)) ++
+        Enum.map(@parity_support_sources, &("/test/support/" <> &1))
+
     ebin = :argus_beam |> :code.lib_dir() |> List.to_string() |> Path.join("ebin")
 
     paths =

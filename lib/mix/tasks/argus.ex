@@ -66,12 +66,14 @@ defmodule Mix.Tasks.Argus do
     end
   end
 
-  defp analyze(options) do
+  @doc false
+  @spec analyze(options :: Options.t(), driver_options :: keyword()) :: :ok
+  def analyze(options, driver_options \\ []) do
     config = Argus.CLI.override(Argus.Config.load(), options)
     cwd = File.cwd!()
 
     result =
-      Argus.Driver.run(config, force: options.force)
+      Argus.Driver.run(config, Keyword.put(driver_options, :force, options.force))
 
     if Argus.Driver.Result.engine_unavailable?(result) do
       Mix.raise("argus: " <> Argus.FlowLog.not_found_message())

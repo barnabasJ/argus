@@ -19,12 +19,13 @@ defmodule Argus.Project.Mix do
   diagnostic means findings are available to report; an error from another
   compiler means the BEAMs are stale and must not be analyzed. The `:argus`
   compiler, when the project lists it, prints nothing: the caller reports.
+  Native compilation arguments, including `--no-compile`, pass through unchanged.
   """
-  @spec compile!() :: :ok
-  def compile! do
+  @spec compile!(args :: [String.t()]) :: :ok
+  def compile!(args \\ []) do
     compiled =
       Mix.Tasks.Compile.Argus.quietly(fn ->
-        Mix.Task.run("compile", ["--no-prune-code-paths", "--return-errors"])
+        Mix.Task.run("compile", args ++ ["--no-prune-code-paths", "--return-errors"])
       end)
 
     case compiled do

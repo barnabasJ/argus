@@ -157,7 +157,7 @@ Use analysis names or these sets in `analyses:`:
 - `:all`: every analysis in the table;
 - `:security`: `unsafe_input` and `exposure`;
 - `:effects`: `effects`;
-- `:otp`: `:all` except `:security` and `:effects`.
+- `:otp`: `:all` except `:security`, `:effects` and the ExUnit lifecycle rule `:exunit_tmp_dir`.
 
 The separate `coverage` analysis reports missing analysis information. Request it
 explicitly; `--all` excludes it.
@@ -232,3 +232,53 @@ A new CLI invocation observes changed analyzer code. A long-running caller that
 intentionally reloads analyzer modules must call `Roux.Code.forget/0` before the
 next Driver run. This resets code identities; the Graph manifest and result
 store remain intact. Policy-input and included-program edits need no reset.
+
+### Analyze ExUnit tests
+
+Use `mix argus.test exunit_tmp_dir` to compile tests with native
+`mix test --dry-run`, then analyze their captured BEAMs through the same Driver,
+graph, extractors and reports as `mix argus`. This requires Elixir 1.19 or
+later.
+
+```sh
+mix argus.test exunit_tmp_dir
+mix argus.test exunit_tmp_dir --fail-on warning -- test/example_test.exs
+```
+
+The `exunit_tmp_dir` analysis follows OS temporary-directory paths through
+helpers to directory creation in ExUnit tests and test-support code. It
+recommends ExUnit's per-test `tmp_dir` for tests and `setup`. Its `setup_all`
+findings explain that the per-test directory does not exist in that callback.
+Production filesystem functions do not become test-fixture violations merely
+because a test calls them.
+
+Select the analysis in `mix.exs` to make it the default for `mix argus.test`:
+
+```elixir
+def project do
+  [
+    # ...
+    argus: [analyses: [:exunit_tmp_dir]]
+  ]
+end
+```
+
+See the [analysis guide](docs/analyses/exunit_tmp_dir.md) and
+[runnable example](examples/exunit_tmp_dir/README.md) for intentional findings,
+helper calls, correct child directories, and named and inline `setup_all` cases.
+
+Put Argus options before `--` and native Mix test options or paths after it.
+Without paths, Mix uses the project's normal test paths and patterns. Partial
+selection analyzes only the selected test files and compiled helpers. Every
+function in a captured module is analyzed; line, tag, and name filters do not
+exclude individual test functions from analysis. Filtered and skipped test
+functions in those modules remain in the analysis. Captures are fresh each run
+and removed afterwards; failed compilation never analyzes partial or previous
+captures. The test analysis has a separate native manifest.
+
+Test bodies and `setup`/`setup_all` callbacks do not run. Application startup,
+`test_helper.exs`, and top-level compilation code do execute. This command is
+not a sandbox. Normal Mix compile and dry-run output can precede JSON findings.
+Run this command in a fresh Mix VM; an already-required file under the
+configured test paths causes an explicit error instead of an incomplete helper
+capture.

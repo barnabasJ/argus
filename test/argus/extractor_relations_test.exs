@@ -31,7 +31,8 @@ defmodule Argus.ExtractorRelationsTest do
   @table_driven %{
     Argus.Extractors.EctoSchema => [:schema_field, :redacted_field],
     Argus.Extractors.ApiCalls => :declared,
-    Argus.Extractors.Dependence => :declared
+    Argus.Extractors.Dependence => :declared,
+    Argus.Extractors.TempDirectories => :declared
   }
 
   defp emitted_in_source(extractor) do
