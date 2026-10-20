@@ -47,7 +47,7 @@ defmodule Argus.Mix.TestCapture do
         prune_code_paths: false
       )
 
-      Mix.Task.rerun("test", test_args ++ ["--dry-run"])
+      Mix.Task.rerun("test", test_args ++ ["--dry-run"] ++ formatter_args(test_args))
       project = MixProject.current()
       app = Mix.Project.config()[:app]
 
@@ -67,6 +67,13 @@ defmodule Argus.Mix.TestCapture do
 
       File.rm_rf!(directory)
     end
+  end
+
+  defp formatter_args(test_args) do
+    explicit? =
+      Enum.any?(test_args, &(&1 == "--formatter" or String.starts_with?(&1, "--formatter=")))
+
+    if explicit?, do: [], else: ["--formatter", "Argus.Mix.TestCapture.Formatter"]
   end
 
   defp require_fresh_tests! do

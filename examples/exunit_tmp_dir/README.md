@@ -40,7 +40,8 @@ This abbreviated excerpt is from the native CLI output. The omitted lines
 contain the source span and explanatory note:
 
 ```text
-Result: 0 tests
+argus.test: compiling project and capturing test BEAMs (test bodies do not run)
+argus.test: analyzing captured BEAMs
 warning[argus.exunit_tmp_dir]: ExUnit creates a manual temporary directory
    ╭─[test/named_setup_all_test.exs:11:5]
 ...
@@ -49,9 +50,11 @@ warning[argus.exunit_tmp_dir]: ExUnit creates a manual temporary directory
 4 findings (4 warnings)
 ```
 
-`Result: 0 tests` comes from Mix's dry run. No test, `setup`, or `setup_all`
-body ran to produce these findings. Argus analyzed the captured compiled
-functions.
+No test, `setup`, or `setup_all` body ran to produce these findings. Argus
+analyzed the captured compiled functions. The default formatter hides the native
+dry-run test listing and test summary. Phase messages go to stderr. Compiler
+diagnostics and initialization output remain visible. An explicit native
+`--formatter` keeps that formatter's dry-run output.
 
 ## What to inspect
 

@@ -278,7 +278,11 @@ captures. The test analysis has a separate native manifest.
 
 Test bodies and `setup`/`setup_all` callbacks do not run. Application startup,
 `test_helper.exs`, and top-level compilation code do execute. This command is
-not a sandbox. Normal Mix compile and dry-run output can precede JSON findings.
+not a sandbox. Dry-run listings and the test summary are hidden by default.
+Capture and analysis phase messages go to stderr. Compiler diagnostics and
+initialization output remain visible, so ordinary Mix compilation output can
+still precede JSON findings. Pass a native `--formatter` after `--` to keep
+that formatter's dry-run output.
 Run this command in a fresh Mix VM; an already-required file under the
 configured test paths causes an explicit error instead of an incomplete helper
 capture.

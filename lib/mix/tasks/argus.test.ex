@@ -19,8 +19,11 @@ defmodule Mix.Tasks.Argus.Test do
 
   Test bodies, `setup`, and `setup_all` callbacks do not run. The application
   starts normally and `test_helper.exs` and other top-level compilation code
-  execute. This is not a sandbox for untrusted code. Ordinary Mix compilation
-  and dry-run output can precede the Argus report, including JSON reports.
+  execute. This is not a sandbox for untrusted code. The default formatter hides
+  dry-run test listings and the test summary. An explicit native `--formatter`
+  keeps the requested formatter output. Capture and analysis phase messages go
+  to stderr. Mix compilation and top-level initialization output remain visible
+  and can precede a JSON report; compiler warnings and errors are preserved.
 
   Requires Elixir 1.19 or later. The task defaults to `MIX_ENV=test` and retains
   test debug information for analysis. Native test diagnostics fail the command;
@@ -60,7 +63,13 @@ defmodule Mix.Tasks.Argus.Test do
         {:ok, _apps} = Application.ensure_all_started(:telemetry)
         if options.offline, do: Argus.Offline.enable()
 
+        IO.puts(
+          :stderr,
+          "argus.test: compiling project and capturing test BEAMs (test bodies do not run)"
+        )
+
         Argus.Mix.TestCapture.run(test_args, fn project ->
+          IO.puts(:stderr, "argus.test: analyzing captured BEAMs")
           Mix.Tasks.Argus.analyze(options, project: project)
         end)
     end

@@ -33,9 +33,12 @@ module remain in the analysis.
 
 The task does not execute test bodies, `setup`, or `setup_all`. It does execute
 application startup, `test_helper.exs`, and other top-level compilation code. It
-is not a sandbox for untrusted tests. Mix compilation or dry-run output can
-precede the Argus report, including a JSON report. Compilation errors stop the
-command before analysis.
+is not a sandbox for untrusted tests. The task hides dry-run test listings and
+the test summary by default. Capture and analysis phase messages go to stderr.
+Compiler warnings, errors, and initialization output remain visible; ordinary
+Mix compilation output can still precede a JSON report. An explicit native
+`--formatter` after `--` keeps that formatter's dry-run output. Compilation
+errors stop the command before analysis.
 
 ## Read a finding
 

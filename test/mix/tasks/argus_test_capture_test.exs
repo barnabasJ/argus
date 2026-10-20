@@ -8,6 +8,7 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
   alias Argus.Project.Mix, as: MixProject
   alias Argus.Project.Scan
   alias Argus.Test.Peer
+  alias Mix.Tasks.Argus.Test
 
   @moduletag :project
   @moduletag :tmp_dir
@@ -240,6 +241,7 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
     fixture!(root)
 
     File.write!(Path.join(root, "test/first_test.exs"), """
+    IO.warn("intentional test compilation warning")
     defmodule CaptureFixture.ManualDirectoryTest do
       use ExUnit.Case
       setup_all do
@@ -251,23 +253,78 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
     end
     """)
 
+    File.write!(
+      Path.join(root, "test/test_helper.exs"),
+      ~s|IO.puts("test helper output remains visible")\n|,
+      [:append]
+    )
+
     peer = Peer.start!()
 
     Peer.run(peer, fn ->
       Mix.Project.in_project(:capture_fixture, root, fn _ ->
         Mix.ProjectStack.merge_config(argus: [analyses: [:exunit_tmp_dir]])
 
-        output =
-          capture_io(:stderr, fn ->
-            assert_raise Mix.Error, ~r/findings at --fail-on warning or above/, fn ->
-              Mix.Tasks.Argus.Test.run(["--fail-on", "warning"])
-            end
+        {{_result, output}, stdout} =
+          with_io(fn ->
+            with_io(:stderr, fn ->
+              assert_raise Mix.Error, ~r/findings at --fail-on warning or above/, fn ->
+                Test.run(["--fail-on", "warning"])
+              end
+            end)
           end)
 
+        assert output =~ "argus.test: compiling project and capturing test BEAMs"
+        assert output =~ "argus.test: analyzing captured BEAMs"
+        assert output =~ "intentional test compilation warning"
+        assert stdout =~ "test helper output remains visible"
+        refute stdout =~ "Running ExUnit"
+        refute stdout =~ "Tests that would be executed:"
+        refute stdout =~ "Result:"
+        refute stdout =~ "test body"
         assert output =~ "warning[argus.exunit_tmp_dir]"
         assert output =~ "test/first_test.exs"
         assert output =~ "setup_all runs before per-test directories exist"
         assert Path.wildcard(Path.join(Mix.Project.manifest_path(), "argus-test-capture-*")) == []
+      end)
+    end)
+  end
+
+  test "the public task preserves native compilation errors", %{tmp_dir: root} do
+    fixture!(root)
+    File.write!(Path.join(root, "test/broken_test.exs"), "defmodule Broken do def invalid( end")
+    peer = Peer.start!()
+
+    Peer.run(peer, fn ->
+      Mix.Project.in_project(:capture_fixture, root, fn _ ->
+        {{_result, stderr}, stdout} =
+          with_io(fn ->
+            with_io(:stderr, fn ->
+              assert catch_exit(Test.run([])) == {:shutdown, 1}
+            end)
+          end)
+
+        assert stderr =~ "argus.test: compiling project and capturing test BEAMs"
+        refute stderr =~ "argus.test: analyzing captured BEAMs"
+        assert stdout <> stderr =~ "Compilation error in file"
+        assert stdout <> stderr =~ "test/broken_test.exs"
+      end)
+    end)
+  end
+
+  test "an explicit native formatter keeps the requested dry-run output", %{tmp_dir: root} do
+    fixture!(root)
+    peer = Peer.start!()
+
+    Peer.run(peer, fn ->
+      Mix.Project.in_project(:capture_fixture, root, fn _ ->
+        output =
+          capture_io(fn ->
+            TestCapture.run(["--formatter", "ExUnit.CLIFormatter"], fn _ -> :ok end)
+          end)
+
+        assert output =~ "Running ExUnit"
+        assert output =~ "Tests that would be executed:"
       end)
     end)
   end
