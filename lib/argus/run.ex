@@ -119,8 +119,8 @@ defmodule Argus.Run do
         "its root), and `manifest:` keeps the graph between calls",
     solve_cache: "solves are kept in the blob store's action cache: `store:` names one",
     extractors:
-      "every built-in extractor runs, once for every analysis: for another extractor's " <>
-        "rows, extract with Argus.Pipeline.extract/2 and solve with Argus.Analysis.run_rules/3",
+      "analyses declare their extractors: supply an analysis module, or extract with " <>
+        "Argus.Pipeline.extract/2 and solve with Argus.Analysis.run_rules/3",
     relations:
       "a solve reads every relation its program reads: for a facts directory, use " <>
         "Argus.Analysis.extract_facts/3",
@@ -285,8 +285,8 @@ defmodule Argus.Run do
   # ── Facts directory ────────────────────────────────────────────────
 
   # The directory `analyses` read: every relation of the schema, each
-  # holding the rows of the producers those analyses run (the base, the
-  # call-argument extractor and each one's extractors), `line_info`
+  # holding the rows of the producers those analyses run (the base, declared
+  # extractors and providers of shared rule inputs), `line_info`
   # among them, the imprecision trace only for `:coverage`; of the
   # relations only the in-process passes read
   # (`Argus.Schema.in_process_only/0`), the ones a custom program among
@@ -317,7 +317,12 @@ defmodule Argus.Run do
          dir = Path.join(work, "facts"),
          :ok <- File.mkdir_p(dir),
          {:ok, files} <-
-           Graph.Relations.files(db, @program, Enum.reverse(relations), producers(analyses)),
+           Graph.Relations.files(
+             db,
+             @program,
+             Enum.reverse(relations),
+             Roux.Runtime.query(db, :producer_code, :all) |> Map.keys()
+           ),
          :ok <- link_all(db, files, dir),
          :ok <- empty_files(empty, dir),
          :ok <- stage(db, :stage0, dir),
@@ -344,20 +349,6 @@ defmodule Argus.Run do
       error -> error
     end
   end
-
-  # The producers `analyses` read: the base, the call-argument extractor
-  # every analysis reads through, and each built-in's own.
-  defp producers(analyses) do
-    extractors =
-      for {:ok, module} <- Enum.map(analyses, &analysis_module/1),
-          extractor <- module.extractors(),
-          do: extractor
-
-    Enum.uniq([:base, Argus.Extractors.CallArgs | extractors])
-  end
-
-  defp analysis_module({:custom, _path}), do: :error
-  defp analysis_module(name), do: Analysis.Catalog.fetch(name)
 
   defp link_all(db, files, dir) do
     Enum.reduce_while(files, :ok, fn {relation, digest}, :ok ->

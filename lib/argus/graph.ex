@@ -188,6 +188,10 @@ defmodule Argus.Graph do
       (no manifest), whose queries all run afresh, has no use for it:
       what it finds in the store it verifies through the files
       themselves (`Roux.Stamp`).
+    * `:analyses` — extract the selected analyses' declared producers and the
+      producers of their Datalog inputs, including shared stage inputs. Omit
+      this option for a graph that can serve arbitrary later queries; omission
+      retains every built-in producer. Raw custom Datalog also retains all.
     * `:application_ebins` — `{application, ebin}` pairs already selected by
       the frontend, used to identify each extractor input's OTP application.
       Omission leaves application identity unknown.
@@ -214,6 +218,7 @@ defmodule Argus.Graph do
         Argus.Graph.Code.supplied(db, Keyword.get(opts, :analyses, []))
       ),
       set(db, :analysis_inputs, :all, analysis_inputs(Keyword.get(opts, :analyses, []))),
+      set(db, :extraction_selection, :all, Keyword.get(opts, :analyses, :all)),
       set(db, :own_ebins, :all, Keyword.get(opts, :own_ebins)),
       set(
         db,

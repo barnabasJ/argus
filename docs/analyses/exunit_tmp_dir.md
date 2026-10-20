@@ -47,8 +47,15 @@ errors stop the command before analysis.
 
 The task inherits `include_deps` from the project's Argus configuration. Select
 only the analyses you need, as in `mix argus.test exunit_tmp_dir`. This limits
-analysis solves. Argus's native graph still prepares its built-in facts for the
-selected modules, so one analysis does not mean one small extractor pass.
+both solves and extraction. Argus uses the engine's input manifest to select
+native fact producers, includes shared-stage requirements, and retains each
+selected analysis's declared extractors. This check needs the base facts and
+the `TempDirectories`, `ClauseCall`, and `Tooling` extractors.
+
+Selecting another analysis updates the tracked producer selection. Argus reuses
+valid cached facts and extracts newly required facts. Custom Datalog programs
+and pipeline coverage retain the full native inventory. Direct graph consumers
+that do not select analyses also retain the full inventory.
 
 Capture's default `--max-requires 1` limits test-file compilation concurrency.
 It does not limit analysis concurrency or memory. For a constrained run, you can

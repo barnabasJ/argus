@@ -8,8 +8,8 @@ defmodule Argus.RunFactsTest do
   @moduledoc """
   `Argus.Analysis.extract_facts/3` writes, in every file of a relation
   the producers extract, the rows `Argus.Pipeline.extract/2` gives for
-  the producers the analyses run (the base, the call-argument extractor
-  and each analysis's own): `line_info` among them, the imprecision
+  the producers the analyses run (the base, their declared extractors
+  and required shared-input providers): `line_info` among them, the imprecision
   trace only for `:coverage`. Relations are sets. Label numbers are
   compared by their target instruction, since function queries use local labels.
   """
@@ -35,12 +35,22 @@ defmodule Argus.RunFactsTest do
   end
 
   defp extractors(analyses) do
-    for(
-      {:ok, module} <- Enum.map(analyses, &Analysis.fetch_module/1),
-      e <- module.extractors(),
-      do: e
-    )
-    |> then(&Enum.uniq([Argus.Extractors.CallArgs | &1]))
+    if :coverage in analyses do
+      # Coverage measures uncertainty from the full native pipeline, not only
+      # the older subset its Datalog outputs read directly. Build the oracle
+      # from native registrations, independently of selected graph planning.
+      Enum.uniq(
+        [Argus.Extractors.CallArgs, Argus.Extractors.ETS, Argus.Extractors.ApiCalls] ++
+          Enum.flat_map(Analysis.builtin_analysis_modules(), & &1.extractors())
+      )
+    else
+      for(
+        {:ok, module} <- Enum.map(analyses, &Analysis.fetch_module/1),
+        e <- module.extractors(),
+        do: e
+      )
+      |> then(&Enum.uniq([Argus.Extractors.CallArgs | &1]))
+    end
   end
 
   defp label_targets do

@@ -12,8 +12,8 @@ defmodule Argus.Graph.Code do
   them. So they are values here, each versioned by all of that code and
   cheap to compute again:
 
-    * `producer_code(:all)` — every producer extraction runs
-      (`Argus.Graph.Extraction.producers/0`) and the digest of the code
+    * `producer_code(:all)` — the producers used for extraction, selected by
+      `Argus.Graph.Extraction.selected/3`, and the digest of the code
       it runs (`Argus.Pipeline`, and the extractor itself), the schema's
       modules left out: `module_facts` reads it, and finds each
       producer's rows by that digest (`Argus.Graph.Pack`). An extractor
@@ -24,6 +24,7 @@ defmodule Argus.Graph.Code do
       it. An edit to one analysis moves only its own.
   """
 
+  alias Argus.Analysis.Catalog
   alias Argus.Graph.Extraction
   alias Argus.Graph.Reads
 
@@ -62,9 +63,9 @@ defmodule Argus.Graph.Code do
   def supplied(db, analyses) do
     selected =
       for selection <- analyses,
-          {:ok, module, _options} <- [Argus.Analysis.Catalog.selection(selection)],
-          selection not in Argus.Analysis.Catalog.names(),
-          Argus.Analysis.Catalog.external?(
+          {:ok, module, _options} <- [Catalog.selection(selection)],
+          selection not in Catalog.names(),
+          Catalog.external?(
             case selection do
               {selected_module, _} -> selected_module
               selected_module -> selected_module
@@ -84,8 +85,11 @@ defmodule Argus.Graph.Code do
   defquery :producer_code, key: :all, code: {__MODULE__, :roots, []} do
     supplied = Roux.Runtime.input(db, :analysis_modules, :all, default: %{producers: %{}})
 
+    selection = Roux.Runtime.input(db, :extraction_selection, :all, default: :all)
+    producers = Extraction.selected(db, selection, Map.keys(supplied.producers))
+
     builtin =
-      for producer <- Extraction.producers(), into: %{} do
+      for producer <- producers, producer not in Map.keys(supplied.producers), into: %{} do
         {producer, digest(producer_roots(producer), db)}
       end
 

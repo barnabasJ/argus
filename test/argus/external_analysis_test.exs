@@ -1,6 +1,8 @@
 defmodule Argus.ExternalAnalysisTest do
   use ExUnit.Case, async: true
 
+  alias Argus.Driver.Result
+  alias Argus.Report.Notice
   alias Argus.Test.{ExternalAnalysis, MissingExternalAnalysis}
   @moduletag :flowlog
   @moduletag :tmp_dir
@@ -145,7 +147,7 @@ defmodule Argus.ExternalAnalysisTest do
       config = Argus.Config.load(include_deps: true, analyses: [selection])
       result = Argus.Driver.run(config, project: context.project, store: context.store)
       assert result.notices == []
-      assert Argus.Driver.Result.degraded(result) == []
+      assert Result.degraded(result) == []
       {selection, config, result}
     end
 
@@ -204,8 +206,8 @@ defmodule Argus.ExternalAnalysisTest do
     result = Argus.Driver.run(config, project: context.project, store: context.store)
     assert {:ok, [_]} = result.located[selection]
     assert {:error, {:rules_not_found, _}} = result.located[missing]
-    assert [%{analysis: ^missing}] = Argus.Driver.Result.degraded(result)
-    assert [notice] = Argus.Report.Notice.from_result(result, config, context.project.root)
+    assert [%{analysis: ^missing}] = Result.degraded(result)
+    assert [notice] = Notice.from_result(result, config, context.project.root)
     assert notice.message =~ "the missing_external analysis degraded"
   end
 
@@ -440,8 +442,10 @@ defmodule Argus.ExternalAnalysisTest do
     _digest = Argus.Specs.interface_digest(:external_owner, source)
     selection = {ExternalAnalysis, value: "first"}
 
+    # Coverage selects every native producer, including Generated, whose debug
+    # metadata diagnostic proves that persisted backends are rejected safely.
     result =
-      Argus.Driver.run(Argus.Config.load(include_deps: true, analyses: [selection]),
+      Argus.Driver.run(Argus.Config.load(include_deps: true, analyses: [:coverage, selection]),
         project: context.project,
         store: context.store
       )
@@ -474,14 +478,14 @@ defmodule Argus.ExternalAnalysisTest do
         @impl true
         def rules_file, do: unquote(rules)
         @impl true
-        def extractors, do: Argus.Test.ExternalAnalysis.extractors()
+        def extractors, do: ExternalAnalysis.extractors()
         @impl true
-        def input_facts(options), do: Argus.Test.ExternalAnalysis.input_facts(options)
+        def input_facts(options), do: ExternalAnalysis.input_facts(options)
         @impl true
-        def output_relations, do: Argus.Test.ExternalAnalysis.output_relations()
+        def output_relations, do: ExternalAnalysis.output_relations()
         @impl true
         def finding(relation, row) do
-          attrs = Argus.Test.ExternalAnalysis.finding(relation, row)
+          attrs = ExternalAnalysis.finding(relation, row)
           %{attrs | title: unquote(prefix) <> attrs.title}
         end
       end

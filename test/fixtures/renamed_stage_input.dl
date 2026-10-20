@@ -1,0 +1,8 @@
+// The native solver routes staged inputs by filename. The relation spelling
+// deliberately differs from the stage output's name.
+.decl renamed_process(proc: symbol) mutable
+.input renamed_process(filename="process.facts")
+
+.decl stage_probe(proc: symbol)
+stage_probe(proc) :- renamed_process(proc).
+.output stage_probe

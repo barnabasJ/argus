@@ -45,6 +45,10 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Fixed
 
+- Explicit analysis selections extract only declared producers and native
+  providers of the rules' input relations, including shared stages. Changing
+  selections reuses valid producer caches and fills missing facts. Pipeline
+  coverage, raw Datalog, and graphs without a selection retain the full inventory.
 - `exunit_tmp_dir` limits callback joins to registered callbacks and lifecycle
   traversal to paths that can reach a test-owned directory creation. Large test
   suites avoid unrelated call-graph expansion; helper return summaries still

@@ -33,6 +33,9 @@ defmodule Argus.Graph.Inputs do
     * `dl_tree` (a directory) — each Datalog file under it and its
       content's digest: what a program is read from
       (`Argus.Graph.Programs`).
+    * `extraction_selection` (`:all`) — the selected analyses, or `:all`
+      for a graph that can serve arbitrary later queries. Producer planning
+      reads this input, so selection changes invalidate incomplete module packs.
     * `priors` (`{program, relation}`) — a layer-3 relation's rows as
       the text an engine reads, empty when priors are off.
 
@@ -57,5 +60,6 @@ defmodule Argus.Graph.Inputs do
   definput(:solver, durability: :high)
   definput(:dl_tree, durability: :high)
   definput(:analysis_modules, durability: :high)
+  definput(:extraction_selection, durability: :high)
   definput(:analysis_inputs, durability: :medium)
 end

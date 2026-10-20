@@ -267,8 +267,10 @@ See the [analysis guide](docs/analyses/exunit_tmp_dir.md) and
 [runnable example](examples/exunit_tmp_dir/README.md) for intentional findings,
 helper calls, correct child directories, and named and inline `setup_all` cases.
 The guide also covers [resource limits and dependency scope](docs/analyses/exunit_tmp_dir.md#control-analysis-scope-and-resources).
-Selecting one analysis limits solves; the native graph still prepares built-in
-facts for the selected modules.
+Selecting analyses also limits extraction. Argus uses the engine's input
+manifest and each analysis's declared extractors to select fact producers,
+including the producers needed by shared stages. Custom Datalog programs and
+the pipeline coverage analysis keep the full built-in inventory.
 
 Put Argus options before `--` and native Mix test options or paths after it.
 Test capture defaults to native `--max-requires 1`, so test files compile one at
