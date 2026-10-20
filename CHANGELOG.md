@@ -30,6 +30,9 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Fixed
 
+- TSV encoding skips ordinary ASCII in eight-byte groups. Escaping still preserves
+  arbitrary binary fields and valid UTF-8 text.
+
 - Unchanged module extraction packs use ordinary dependency validation instead
   of replaying their stored extraction traces on each restored run. Input,
   schema and producer changes still invalidate the packs; missing segments

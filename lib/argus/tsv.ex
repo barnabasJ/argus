@@ -81,11 +81,15 @@ defmodule Argus.Tsv do
     if special?(field), do: escape_all(field, []), else: field
   end
 
-  # A byte scan rather than `:binary.match/2` over the characters: a list
-  # pattern is compiled on every call, and every field of every fact row
-  # comes through here — on 650k rows the compiles were five sixths of
-  # encoding them. A compiled pattern cannot be a module literal, and the
-  # fields are short enough that scanning them is as fast as matching one.
+  # Skip eight ordinary ASCII bytes at a time. Special bytes and short tails
+  # use the byte scan below; escaping and UTF-8 handling stay identical.
+  defguardp plain?(byte) when byte >= 32 and byte < 128 and byte != ?\\
+
+  defp special?(<<a, b, c, d, e, f, g, h, rest::binary>>)
+       when plain?(a) and plain?(b) and plain?(c) and plain?(d) and
+              plain?(e) and plain?(f) and plain?(g) and plain?(h),
+       do: special?(rest)
+
   defp special?(<<byte, _::binary>>) when byte in [?\\, ?\t, ?\n, ?\r] or byte >= 0x80,
     do: true
 

@@ -60,6 +60,27 @@ defmodule Argus.TsvTest do
       end
     end
 
+    test "every byte is preserved or escaped at each position around scan boundaries" do
+      for byte <- 0..255, position <- 0..17 do
+        value =
+          String.duplicate("a", position) <> <<byte>> <> String.duplicate("z", 17 - position)
+
+        escaped =
+          case byte do
+            ?\\ -> "\\\\"
+            ?\t -> "\\t"
+            ?\n -> "\\n"
+            ?\r -> "\\r"
+            byte when byte >= 128 -> "\\x" <> Base.encode16(<<byte>>)
+            byte -> <<byte>>
+          end
+
+        assert Tsv.escape(value) ==
+                 String.duplicate("a", position) <>
+                   escaped <> String.duplicate("z", 17 - position)
+      end
+    end
+
     test "a field with nothing to escape is returned as it is" do
       value = "Elixir.Foo:bar/2#17"
       assert :erts_debug.same(Tsv.escape(value), value)
