@@ -7,6 +7,10 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Added
 
+- `include_deps` accepts an application list as well as booleans. Only named
+  dependencies enter extraction; all dependency paths remain available for spec
+  resolution. Unknown names fail discovery instead of reducing coverage silently.
+
 - Extractors receive optional `application` identity from the frontend's selected
   application paths. Application remapping invalidates affected extractor results.
 - Typed extractor inputs include native resolved applies and higher-order callback

@@ -3,7 +3,7 @@ defmodule Argus.Project.Scan do
   Beam discovery and change detection for the driver.
 
   `scan/2` globs the program's ebins (`Argus.Project`, and its
-  dependencies' when `include_deps` is set) into a `module => beam_path`
+  dependencies' selected by `include_deps`) into a `module => beam_path`
   map, applying module-level ignores at discovery so ignored modules are
   never even extracted. Ignored modules are still watched: a caller's
   extraction reads their specs (`Argus.Graph` tracks those callers
@@ -54,12 +54,32 @@ defmodule Argus.Project.Scan do
   def scan(config, project \\ Argus.Project.Mix.current())
 
   def scan(%Argus.Config{} = config, %Argus.Project{} = project) do
-    ebins = if config.include_deps, do: project.apps ++ project.deps, else: project.apps
+    ebins = project.apps ++ dependency_ebins(config.include_deps, project.deps)
 
     ebins
     |> Enum.map(&elem(&1, 1))
     |> discover(config.ignore_modules ++ project.generated)
     |> Map.put(:apps, ebins |> Enum.map(&elem(&1, 0)) |> Enum.uniq())
+  end
+
+  defp dependency_ebins(false, _deps), do: []
+  defp dependency_ebins(true, deps), do: deps
+
+  defp dependency_ebins(applications, deps) when is_list(applications) do
+    available = Keyword.keys(deps) |> Enum.uniq()
+
+    case applications -- available do
+      [] ->
+        Keyword.take(deps, applications)
+
+      [unknown | _] ->
+        raise Argus.ConfigError.new(
+                [:include_deps],
+                unknown,
+                "unknown dependency application #{inspect(unknown)}; available applications: #{inspect(available)}",
+                available
+              )
+    end
   end
 
   @doc """

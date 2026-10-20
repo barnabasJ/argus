@@ -216,7 +216,11 @@ analyses' findings.
 External extractors operate on prepared whole-module data. Declare
 `requirements/0` as `[:beam]`, `[:typed]`, or both when those inputs are needed.
 The `:beam` value contains immutable bytes supplied by native input discovery.
-Use the standard `include_deps` configuration to select dependency applications.
+Use `include_deps: false` for project applications, `true` for every dependency,
+or a list such as `include_deps: [:ash, :phoenix]` for specific dependency
+applications. Lists do not expand transitively. Unknown application names fail
+with a configuration error. Dependencies outside the selection remain available
+for native spec resolution.
 Every selected analysis shares the same native project program. The optional
 `module_data.project?` boolean identifies modules from project application ebins.
 Dependency modules have `false`; direct Pipeline and in-memory inputs default to

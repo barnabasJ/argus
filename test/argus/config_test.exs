@@ -9,6 +9,21 @@ defmodule Argus.ConfigTest do
     assert {:ok, Config.load([]).analyses} == Argus.Analysis.set(:default)
   end
 
+  test "dependency selection accepts booleans or application lists" do
+    for selection <- [false, true, [], [:ash], [:ash, :phoenix]] do
+      assert Config.load(include_deps: selection).include_deps == selection
+    end
+
+    assert Config.load(include_deps: [:ash, :ash]).include_deps == [:ash]
+    assert Config.load([include_deps: [:ash]], {:file, "argus.config"}).include_deps == [:ash]
+
+    for invalid <- [:ash, "ash", ~c"ash", [:ash, "phoenix"], [nil], [true], [false], %{ash: true}] do
+      error = assert_raise Argus.ConfigError, fn -> Config.load(include_deps: invalid) end
+      assert error.key == [:include_deps]
+      assert error.message =~ "boolean or a list of application atoms"
+    end
+  end
+
   test "a named set expands to its members, once" do
     {:ok, security} = Argus.Analysis.set(:security)
     assert Config.load(analyses: [:security, :exposure]).analyses == security

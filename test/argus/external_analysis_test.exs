@@ -77,6 +77,44 @@ defmodule Argus.ExternalAnalysisTest do
     assert stable.located == removed.located
   end
 
+  test "dependency lists change native membership and retain incremental input tracking",
+       context do
+    selection = {ExternalAnalysis, value: "first"}
+    config = Argus.Config.load(include_deps: [:dependency], analyses: [selection])
+
+    omitted_dir = Path.join(context.project.root, "omitted/ebin")
+    File.mkdir_p!(omitted_dir)
+    unused = Path.join(omitted_dir, "unused_dependency.beam")
+    File.write!(unused, "not a BEAM")
+    project = %{context.project | deps: context.project.deps ++ [omitted: omitted_dir]}
+
+    run = fn config ->
+      Argus.Driver.run(config, project: project, store: context.store)
+    end
+
+    cold = run.(config)
+    assert cold.notices == []
+    assert {:ok, [_]} = cold.located[selection]
+    refute run.(config).changed?
+    File.write!(unused, "still not a BEAM")
+    # Unselected libraries still belong to the native spec environment.
+    external_change = run.(config)
+    assert external_change.notices == []
+    assert external_change.located == cold.located
+    refute run.(config).changed?
+
+    omitted = run.(%{config | include_deps: []})
+    assert omitted.changed?
+    assert {:ok, []} = omitted.located[selection]
+    assert run.(config).located == cold.located
+
+    beam!(:external_dependency, context.reference, [{:attribute, 3, :external_value, :second}])
+    changed = run.(config)
+    assert changed.changed?
+    assert {:ok, []} = changed.located[selection]
+    refute run.(config).changed?
+  end
+
   test "external options, included rules and analyzer code invalidate only real changes",
        context do
     root = context.project.root

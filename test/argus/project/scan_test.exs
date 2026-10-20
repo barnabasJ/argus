@@ -57,6 +57,38 @@ defmodule Argus.Project.ScanTest do
       assert {both.modules, both.apps} == {%{Own => own, dep_mod: dep}, [:app, :dep]}
     end
 
+    test "a dependency list preserves project precedence and selects exactly the named apps", %{
+      tmp_dir: dir
+    } do
+      own = beam!(Path.join(dir, "app/ebin"), Own)
+      selected = beam!(Path.join(dir, "selected/ebin"), Selected)
+      shadowed = beam!(Path.join(dir, "selected/ebin"), Own)
+      omitted = beam!(Path.join(dir, "omitted/ebin"), Omitted)
+
+      project = %Argus.Project{
+        kind: :beams,
+        root: dir,
+        state_dir: dir,
+        apps: [app: Path.dirname(own)],
+        deps: [selected: Path.dirname(selected), omitted: Path.dirname(omitted)]
+      }
+
+      scan = Scan.scan(Argus.Config.load(include_deps: [:selected]), project)
+      assert scan.modules == %{Own => own, Selected => selected}
+      assert scan.apps == [:app, :selected]
+      assert scan.duplicates == [%{module: Own, used: own, shadowed: [shadowed]}]
+      assert Scan.scan(Argus.Config.load(include_deps: []), project).modules == %{Own => own}
+
+      error =
+        assert_raise Argus.ConfigError, fn ->
+          Scan.scan(Argus.Config.load(include_deps: [:selectd]), project)
+        end
+
+      assert error.key == [:include_deps]
+      assert error.value == :selectd
+      assert error.message =~ "did you mean :selected"
+    end
+
     test "an ignore regex matches a module by its Elixir or its Erlang name", %{tmp_dir: dir} do
       beam!(Path.join(dir, "ebin"), :my_gen_parser)
       beam!(Path.join(dir, "ebin"), Elixir.MyApp.Gen)

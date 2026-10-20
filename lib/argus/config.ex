@@ -61,6 +61,12 @@ defmodule Argus.Config do
   for its members): the finding someone looked at and kept, without
   hiding the rest of the module's.
 
+  `include_deps:` accepts `false` (only project applications), `true` (all
+  dependency applications), or a list such as `[:ash, :phoenix]` (only those
+  dependencies). An empty list selects no dependencies. Selection does not
+  automatically include transitive dependencies. Unselected dependencies remain
+  available for native spec resolution. Unknown application names fail discovery.
+
   Every key, at every level, is validated: an invalid entry raises
   `Argus.ConfigError` naming where it is (in its source's own syntax),
   what was expected, and the valid name it most resembles. A finding's
@@ -112,7 +118,7 @@ defmodule Argus.Config do
           ignore_modules: [Regex.t() | module()],
           ignore_files: [String.t()],
           ignore_findings: [ignored_finding()],
-          include_deps: boolean(),
+          include_deps: boolean() | [atom()],
           fail_on: :error | :warning,
           engine: :warn | :require,
           priors: priors()
@@ -169,7 +175,7 @@ defmodule Argus.Config do
       ignore_modules: ignore_modules!(ctx, Keyword.get(ignore, :modules, [])),
       ignore_files: ignore_files!(ctx, Keyword.get(ignore, :files, [])),
       ignore_findings: ignore_findings!(ctx, Keyword.get(ignore, :findings, []), analyses),
-      include_deps: boolean!(ctx, :include_deps, Keyword.get(raw, :include_deps, false)),
+      include_deps: include_deps!(ctx, Keyword.get(raw, :include_deps, false)),
       fail_on: enum!(ctx, [:fail_on], Keyword.get(raw, :fail_on, :error), [:error, :warning]),
       engine: enum!(ctx, [:engine], Keyword.get(raw, :engine, :warn), [:warn, :require]),
       priors: priors!(ctx, Keyword.get(raw, :priors, :off))
@@ -668,10 +674,20 @@ defmodule Argus.Config do
     end
   end
 
-  defp boolean!(_ctx, _key, value) when is_boolean(value), do: value
+  defp include_deps!(_ctx, value) when is_boolean(value), do: value
 
-  defp boolean!(ctx, key, value),
-    do: fail(ctx, [key], value, "#{key} must be a boolean, got: #{show(ctx, value)}")
+  defp include_deps!(ctx, value) do
+    if is_list(value) and Enum.all?(value, &(is_atom(&1) and &1 not in [nil, true, false])) do
+      Enum.uniq(value)
+    else
+      fail(
+        ctx,
+        [:include_deps],
+        value,
+        "include_deps must be a boolean or a list of application atoms, got: #{show(ctx, value)}"
+      )
+    end
+  end
 
   defp enum!(ctx, key, value, allowed) do
     if value in allowed do

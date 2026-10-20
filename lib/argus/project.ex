@@ -19,8 +19,9 @@ defmodule Argus.Project do
   would find: the rebar3 plugin passes the exact ones rebar3 built.
 
   The program's modules are analyzed; a dependency's are analyzed too
-  with `include_deps`, and otherwise only read for the specs of the
-  functions the program calls (`Argus.Specs.Source`). Argus never puts
+  with `include_deps: true`, or when named in an `include_deps` application
+  list. Unselected dependencies are only read for the specs of functions the
+  program calls (`Argus.Specs.Source`). Argus never puts
   a project's ebins on the VM's code path, so a dependency can never
   collide with a copy the escript carries.
 
