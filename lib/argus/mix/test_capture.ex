@@ -14,7 +14,8 @@ defmodule Argus.Mix.TestCapture do
     end
 
     require_fresh_tests!()
-    MixProject.compile!(test_args -- ["--warnings-as-errors"])
+    {test_switches, file_arguments} = Enum.split_while(test_args, &(&1 != "--"))
+    MixProject.compile!((test_switches -- ["--warnings-as-errors"]) ++ file_arguments)
 
     directory =
       Path.join(
@@ -47,7 +48,14 @@ defmodule Argus.Mix.TestCapture do
         prune_code_paths: false
       )
 
-      Mix.Task.rerun("test", test_args ++ ["--dry-run"] ++ formatter_args(test_args))
+      Mix.Task.rerun(
+        "test",
+        test_switches ++
+          ["--dry-run"] ++
+          formatter_args(test_switches) ++
+          concurrency_args(test_switches) ++ file_arguments
+      )
+
       project = MixProject.current()
       app = Mix.Project.config()[:app]
 
@@ -67,6 +75,16 @@ defmodule Argus.Mix.TestCapture do
 
       File.rm_rf!(directory)
     end
+  end
+
+  defp concurrency_args(test_args) do
+    explicit? =
+      Enum.any?(
+        test_args,
+        &(&1 == "--max-requires" or String.starts_with?(&1, "--max-requires="))
+      )
+
+    if explicit?, do: [], else: ["--max-requires", "1"]
   end
 
   defp formatter_args(test_args) do

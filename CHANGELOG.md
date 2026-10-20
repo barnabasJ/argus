@@ -45,6 +45,17 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Fixed
 
+- `exunit_tmp_dir` limits callback joins to registered callbacks and lifecycle
+  traversal to paths that can reach a test-owned directory creation. Large test
+  suites avoid unrelated call-graph expansion; helper return summaries still
+  cover the selected program.
+- `mix argus.test` compiles test files one at a time by default to reduce peak
+  compiler memory. An explicit native `--max-requires N` overrides the default.
+- Test capture keeps its forced dry-run options before a native `--` file
+  separator, including when an earlier option disables dry-run.
+- `mix argus` and `mix argus.test` fail after reporting a degraded analysis,
+  matching the native CLI status instead of treating zero findings as success.
+
 - TSV encoding skips ordinary ASCII in eight-byte groups. Escaping still preserves
   arbitrary binary fields and valid UTF-8 text.
 

@@ -29,7 +29,8 @@ defmodule Mix.Tasks.Argus do
   `--fail-on` are the gates. A project that does not compile is an
   error, and so is a machine that cannot build the FlowLog engines (no
   Rust): a one-shot run without them has nothing to say (the compiler
-  degrades with a notice instead).
+  degrades with a notice instead). An analysis that cannot finish also fails
+  this task after its diagnostics are printed, even when it reports no findings.
 
   Project configuration (`argus:` — severity overrides, ignores)
   applies to this task too; positional analyses and
@@ -82,7 +83,11 @@ defmodule Mix.Tasks.Argus do
     notices = Argus.Report.Notice.from_result(result, config, cwd)
     # An umbrella child's report, under its `==> app` header; JSON stays JSON.
     if options.format == :text, do: Mix.shell().print_app()
-    %{entries: entries} = Argus.CLI.report(result, notices, config, options, cwd, cwd)
+    %{entries: entries, status: status} = Argus.CLI.report(result, notices, config, options, cwd, cwd)
+
+    if status == 3 do
+      Mix.raise("argus: analysis did not complete; see the diagnostics above")
+    end
 
     if options.fail_above && length(entries) > options.fail_above do
       Mix.raise("argus: #{length(entries)} findings exceed --fail-above #{options.fail_above}")

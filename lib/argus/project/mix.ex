@@ -23,9 +23,11 @@ defmodule Argus.Project.Mix do
   """
   @spec compile!(args :: [String.t()]) :: :ok
   def compile!(args \\ []) do
+    {switches, files} = Enum.split_while(args, &(&1 != "--"))
+
     compiled =
       Mix.Tasks.Compile.Argus.quietly(fn ->
-        Mix.Task.run("compile", args ++ ["--no-prune-code-paths", "--return-errors"])
+        Mix.Task.run("compile", switches ++ ["--no-prune-code-paths", "--return-errors"] ++ files)
       end)
 
     case compiled do

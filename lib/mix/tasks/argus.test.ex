@@ -10,6 +10,8 @@ defmodule Mix.Tasks.Argus.Test do
       mix argus.test --fail-on warning -- --max-requires 1
 
   Argus options precede `--`; native `mix test` options and paths follow it.
+  Test files compile one at a time by default to reduce peak capture memory. Pass
+  `--max-requires N` after `--` to use native parallel test compilation.
   Without paths, Mix selects the configured test paths and patterns. Each run
   captures only that invocation's compiled test and helper modules. It never
   reuses a previous capture, including after compilation fails or files change.

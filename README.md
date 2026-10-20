@@ -266,8 +266,14 @@ end
 See the [analysis guide](docs/analyses/exunit_tmp_dir.md) and
 [runnable example](examples/exunit_tmp_dir/README.md) for intentional findings,
 helper calls, correct child directories, and named and inline `setup_all` cases.
+The guide also covers [resource limits and dependency scope](docs/analyses/exunit_tmp_dir.md#control-analysis-scope-and-resources).
+Selecting one analysis limits solves; the native graph still prepares built-in
+facts for the selected modules.
 
 Put Argus options before `--` and native Mix test options or paths after it.
+Test capture defaults to native `--max-requires 1`, so test files compile one at
+a time. Pass `--max-requires N` after `--` to select another compilation limit.
+This setting controls test compilation, not Argus analysis concurrency.
 Without paths, Mix uses the project's normal test paths and patterns. Partial
 selection analyzes only the selected test files and compiled helpers. Every
 function in a captured module is analyzed; line, tag, and name filters do not

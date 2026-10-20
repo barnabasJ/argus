@@ -7,6 +7,7 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
   alias Argus.Mix.TestCapture
   alias Argus.Project.Mix, as: MixProject
   alias Argus.Project.Scan
+  alias Argus.Test.MissingExternalAnalysis
   alias Argus.Test.Peer
   alias Mix.Tasks.Argus.Test
 
@@ -47,6 +48,21 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
     assert snapshot.modules[CaptureFixture.SecondTest]
     assert snapshot.modules[CaptureFixture.Helper]
     refute snapshot.modules[CaptureFixture.FirstTest]
+  end
+
+  test "a native file separator cannot disable the dry run", %{tmp_dir: root} do
+    fixture!(root)
+
+    for arguments <- [
+          ["--", "test/second_test.exs"],
+          ["--no-dry-run", "--", "test/second_test.exs"]
+        ] do
+      snapshot = capture!(root, arguments)
+      assert snapshot.modules[CaptureFixture.SecondTest]
+      assert snapshot.modules[CaptureFixture.Helper]
+      refute snapshot.modules[CaptureFixture.FirstTest]
+      refute File.exists?(Path.join(root, "body-ran"))
+    end
   end
 
   test "failed compilation does not invoke analysis or retain a partial capture", %{tmp_dir: root} do
@@ -329,6 +345,101 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
     end)
   end
 
+  test "capture limits native test compilation and honors explicit concurrency", %{tmp_dir: root} do
+    for {arguments, expected} <- [
+          {[], 1},
+          {["--max-requires", "2"], 2},
+          {["--max-requires=2"], 2}
+        ] do
+      fixture!(root)
+
+      File.write!(Path.join(root, "lib/concurrency_tracer.ex"), ~S"""
+      defmodule CaptureFixture.ConcurrencyTracer do
+        def trace(event, %{file: file, lexical_tracker: lexical}) when event in [:start, :stop] do
+          if String.ends_with?(file, "_test.exs") do
+            compiler = self()
+
+            expected = Agent.get_and_update(CaptureFixture.CompilationTracker, fn state ->
+              active = if event == :start, do: Map.put(state.active, lexical, compiler), else: Map.delete(state.active, lexical)
+              maximum = max(state.maximum, map_size(active))
+              starts = state.starts + if(event == :start, do: 1, else: 0)
+
+              if event == :start and state.expected == 2 and map_size(active) == 2 do
+                Enum.each(Map.values(active), &send(&1, :compilers_ready))
+              end
+
+              {state.expected, %{state | active: active, maximum: maximum, starts: starts}}
+            end)
+
+            if event == :start and expected == 2 do
+              receive do
+                :compilers_ready -> :ok
+              after
+                10_000 -> raise "native compilation did not admit the requested second compiler"
+              end
+            end
+          end
+
+          :ok
+        end
+
+        def trace(_, _), do: :ok
+      end
+      """)
+
+      File.write!(Path.join(root, "test/test_helper.exs"), """
+      ExUnit.start()
+      {:ok, _} = Agent.start_link(fn -> %{expected: #{expected}, active: %{}, maximum: 0, starts: 0} end,
+        name: CaptureFixture.CompilationTracker)
+      """)
+
+      peer = Peer.start!()
+
+      Peer.run(peer, fn ->
+        Mix.Project.in_project(:capture_fixture, root, fn _ ->
+          Mix.ProjectStack.merge_config(
+            test_elixirc_options: [tracers: [CaptureFixture.ConcurrencyTracer]]
+          )
+
+          TestCapture.run(arguments, fn _ ->
+            state = Agent.get(CaptureFixture.CompilationTracker, & &1)
+            assert state.maximum == expected
+            assert state.starts == 2
+            assert state.active == %{}
+          end)
+        end)
+      end)
+    end
+  end
+
+  @tag :flowlog
+  test "the public task fails when native reporting marks an analysis degraded", %{tmp_dir: root} do
+    fixture!(root)
+    peer = Peer.start!()
+
+    Peer.run(peer, fn ->
+      Mix.Project.in_project(:capture_fixture, root, fn _ ->
+        MixProject.compile!()
+        Mix.ProjectStack.merge_config(argus: [analyses: [{MissingExternalAnalysis, []}]])
+
+        {{_result, stderr}, stdout} =
+          with_io(fn ->
+            with_io(:stderr, fn ->
+              assert_raise Mix.Error,
+                           "argus: analysis did not complete; see the diagnostics above",
+                           fn ->
+                             Test.run(["--format", "json"])
+                           end
+            end)
+          end)
+
+        assert JSON.decode!(stdout) == []
+        assert stderr =~ "the missing_external analysis degraded and reported nothing"
+        assert stderr =~ "unavailable.dl"
+      end)
+    end)
+  end
+
   defp capture!(root, args) do
     peer = Peer.start!()
 
@@ -337,7 +448,7 @@ defmodule Mix.Tasks.ArgusTestCaptureTest do
         original = Code.compiler_options()
 
         snapshot =
-          TestCapture.run(args ++ ["--max-requires", "1"], fn project ->
+          TestCapture.run(args, fn project ->
             scan = Scan.scan(Argus.Config.load([]), project)
 
             path =

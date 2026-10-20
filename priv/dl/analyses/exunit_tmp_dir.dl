@@ -10,26 +10,37 @@ exunit_case(mod) :- function_def(_, mod, "__ex_unit__", 0, 1).
 .decl tmp_entry(entry: symbol, phase: symbol)
 tmp_entry(entry, "test") :-
   exunit_case(mod), function_def(entry, mod, name, 1, 1), match("test .*", name).
-// Named callbacks are called by the generated two-clause dispatcher. ClauseCall
-// keeps :setup and :setup_all separate even when their callback names are arbitrary.
-tmp_entry(entry, "setup") :-
+// Start with actual dispatcher calls. Pairing every case with every support
+// function creates a Cartesian product before the registration is checked.
+.decl tmp_registered_callback(case_mod: symbol, func: symbol, phase: symbol)
+tmp_registered_callback(mod, entry, "setup") :-
   exunit_case(mod), function_def(dispatch, mod, "__ex_unit__", 2, _),
-  call_instr(dispatch, entry, site), clause_call(site, dispatch, ":setup"), tmp_callback(entry, mod).
-tmp_entry(entry, "setup_all") :-
+  call_instr(dispatch, entry, site), clause_call(site, dispatch, ":setup").
+tmp_registered_callback(mod, entry, "setup_all") :-
   exunit_case(mod), function_def(dispatch, mod, "__ex_unit__", 2, _),
-  call_instr(dispatch, entry, site), clause_call(site, dispatch, ":setup_all"), tmp_callback(entry, mod).
+  call_instr(dispatch, entry, site), clause_call(site, dispatch, ":setup_all").
 
-// ExUnit's dispatcher also calls framework merge/noop helpers. They are not
-// authored setup callbacks. Keep same-case callbacks and explicit test support.
 .decl tmp_callback(func: symbol, case_mod: symbol)
-tmp_callback(func, mod) :- function_def(func, mod, _, _, _), exunit_case(mod).
+tmp_callback(func, mod) :-
+  tmp_registered_callback(mod, func, _), function_def(func, mod, _, _, _).
 tmp_callback(func, case_mod) :-
-  exunit_case(case_mod), function_def(func, mod, _, _, _),
+  tmp_registered_callback(case_mod, func, _), function_def(func, mod, _, _, _),
   tooling_module(mod, "test_support"), mod != "ExUnit.Callbacks".
 
+tmp_entry(entry, phase) :-
+  tmp_registered_callback(mod, entry, phase), tmp_callback(entry, mod).
+
+// A test's product/framework calls matter only if they can lead back to an
+// owned directory-creation site. Return summaries below remain whole-program:
+// a factory outside this execution cone can still provide the sink's path.
+.init tmp_sink_callers = CallReachSet
+tmp_sink_callers.seed(func) :-
+  tmp_dir_argument(_, func, callee, 0, _, _), tmp_directory_create(callee), tmp_test_owner(func).
+
 .decl tmp_reach(entry: symbol, phase: symbol, func: symbol)
-.init tmp_lifecycle_reach = ForwardCallReach
-tmp_lifecycle_reach.root(entry, entry) :- tmp_entry(entry, _).
+.init tmp_lifecycle_reach = ForwardCallReachCut
+tmp_lifecycle_reach.root(entry, entry) :- tmp_entry(entry, _), tmp_sink_callers.reaches(entry).
+tmp_lifecycle_reach.cut(caller, callee) :- call_edge(caller, callee), !tmp_sink_callers.reaches(callee).
 tmp_reach(entry, phase, func) :- tmp_entry(entry, phase), tmp_lifecycle_reach.reaches(entry, func).
 
 // A callee's return parameters are summaries, not values pooled across calls.

@@ -13,7 +13,10 @@ MIX_ENV=test mix argus.test exunit_tmp_dir -- --max-cases 1
 
 The command compiles the `.exs` tests with Mix's dry-run support. It does not
 run the test bodies or their `setup` and `setup_all` callbacks. Application
-startup, `test_helper.exs`, and other top-level compilation code still run.
+startup, `test_helper.exs`, and other top-level compilation code still run. Test
+files compile one at a time by default. Pass `--max-requires N` after `--` to
+select another native compiler concurrency limit; `--max-cases` controls the
+ExUnit runner instead.
 
 To inspect one file, pass its path after `--`:
 

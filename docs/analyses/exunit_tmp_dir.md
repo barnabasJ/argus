@@ -15,7 +15,10 @@ MIX_ENV=test mix argus.test exunit_tmp_dir
 MIX_ENV=test mix argus.test exunit_tmp_dir -- test/example_test.exs
 ```
 
-Argus options precede `--`. Mix test options and paths follow it:
+Argus options precede `--`. Mix test options and paths follow it. Capture
+defaults to native `--max-requires 1` to compile test files one at a time. An
+explicit `--max-requires N` overrides that default. `--max-cases` controls the
+ExUnit runner, not test compilation.
 
 ```sh
 MIX_ENV=test mix argus.test exunit_tmp_dir --fail-on warning -- --max-cases 1
@@ -39,6 +42,35 @@ Compiler warnings, errors, and initialization output remain visible; ordinary
 Mix compilation output can still precede a JSON report. An explicit native
 `--formatter` after `--` keeps that formatter's dry-run output. Compilation
 errors stop the command before analysis.
+
+## Control analysis scope and resources
+
+The task inherits `include_deps` from the project's Argus configuration. Select
+only the analyses you need, as in `mix argus.test exunit_tmp_dir`. This limits
+analysis solves. Argus's native graph still prepares its built-in facts for the
+selected modules, so one analysis does not mean one small extractor pass.
+
+Capture's default `--max-requires 1` limits test-file compilation concurrency.
+It does not limit analysis concurrency or memory. For a constrained run, you can
+also reduce BEAM schedulers and FlowLog workers:
+
+```sh
+ERL_FLAGS='+S 1:1' ARGUS_FLOWLOG_WORKERS=1 MIX_ENV=test mix argus.test exunit_tmp_dir
+```
+
+These settings reduce concurrency. They are not a hard memory limit. Use an
+operating-system memory limit when the process tree needs a hard cap.
+
+`--no-include-deps` before `--` excludes dependency BEAMs from extraction. Argus
+still keeps dependency paths for spec resolution. This can reduce work, but it
+also reduces coverage: a dependency can contain a temporary-path factory or
+other helper the analysis needs to follow. Do not remove dependency inputs
+without considering those call paths. An explicit dependency application list in
+`include_deps` can keep the required inputs without selecting every dependency.
+
+Read extraction and solving notices as well as findings. A degraded analysis
+fails the command after reporting its available findings. Zero findings do not
+establish a clean result when a failure removed facts or prevented a solve.
 
 ## Read a finding
 
