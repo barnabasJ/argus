@@ -7,6 +7,9 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Added
 
+- `Argus.Pipeline.Emit.literal_values/1` projects literal writes from supplied
+  disassembly with the same normalization and spelling as complete emission.
+
 - `mix argus.test` captures test and helper BEAMs through native Mix dry-run
   compilation, then uses the normal Argus analysis and reporting pipeline. Test,
   `setup`, and `setup_all` bodies do not execute; initialization code still does.

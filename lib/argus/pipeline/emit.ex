@@ -86,6 +86,20 @@ defmodule Argus.Pipeline.Emit do
     end)
   end
 
+  @doc "Literal writes alone, with the same normalization and spelling as emission."
+  @spec literal_values(data :: map()) :: facts()
+  def literal_values(%{module: module, functions: functions}) do
+    Enum.reduce(functions, %{}, fn function, acc ->
+      Enum.reduce(Normalize.normalize_function(module, function), acc, fn
+        {id, {:move, source, destination}}, facts ->
+          maybe_literal(facts, id, destination, source)
+
+        _, facts ->
+          facts
+      end)
+    end)
+  end
+
   @doc "Source locations alone, using the same marker and exception-region rules as emission."
   @spec locations(module(), list(), map()) :: facts()
   def locations(module, functions, line_table) do
