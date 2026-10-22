@@ -28,8 +28,6 @@ defmodule Argus.Test.Graph do
     erl/padl2010_time_stamp.erl
   )
 
-  @parity_support_sources []
-
   @doc """
   The parity set: `module => beam_path` for every module argus's own
   fixture files in `@parity_sources` define, as the test build compiled
@@ -67,10 +65,7 @@ defmodule Argus.Test.Graph do
   # the parity sources: read from the beam, not the loaded module, so no
   # fixture is loaded to be asked.
   defp find_parity do
-    suffixes =
-      Enum.map(@parity_sources, &("/test/fixtures/" <> &1)) ++
-        Enum.map(@parity_support_sources, &("/test/support/" <> &1))
-
+    suffixes = Enum.map(@parity_sources, &("/test/fixtures/" <> &1))
     ebin = :argus_beam |> :code.lib_dir() |> List.to_string() |> Path.join("ebin")
 
     paths =
