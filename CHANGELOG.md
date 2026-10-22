@@ -10,17 +10,6 @@ which a change appeared; older names and APIs may have changed since then.
 - `Argus.Pipeline.Emit.literal_values/1` projects literal writes from supplied
   disassembly with the same normalization and spelling as complete emission.
 
-- `mix argus.test` captures test and helper BEAMs through native Mix dry-run
-  compilation, then uses the normal Argus analysis and reporting pipeline. Test,
-  `setup`, and `setup_all` bodies do not execute; initialization code still does.
-
-- `exunit_tmp_dir` warns when ExUnit tests or callbacks create OS temporary
-  directories outside ExUnit's per-test lifecycle. It follows paths through
-  helpers and distinguishes `setup_all`, where `context.tmp_dir` is unavailable.
-  Shared schema relations `tmp_dir_argument` and `tmp_dir_return` describe path
-  provenance for call arguments and returned values. The runnable example covers
-  manual roots, valid child directories, and named and inline `setup_all`.
-
 - `include_deps` accepts an application list as well as booleans. Only named
   dependencies enter extraction; all dependency paths remain available for spec
   resolution. Unknown names fail discovery instead of reducing coverage silently.
@@ -48,23 +37,12 @@ which a change appeared; older names and APIs may have changed since then.
 
 ### Fixed
 
-- `mix argus.test` uses a stable temporary capture path under Mix's native build
-  lock. Repeated runs can reuse unchanged native analysis inputs instead of
-  invalidating ownership and module paths. Test files still compile afresh;
-  captures start empty and are removed after analysis or failure.
 - Explicit analysis selections extract only declared producers and native
   providers of the rules' input relations, including shared stages. Changing
   selections reuses valid producer caches and fills missing facts. Pipeline
   coverage, raw Datalog, and graphs without a selection retain the full inventory.
-- `exunit_tmp_dir` limits callback joins to registered callbacks and lifecycle
-  traversal to paths that can reach a test-owned directory creation. Large test
-  suites avoid unrelated call-graph expansion; helper return summaries still
-  cover the selected program.
-- `mix argus.test` compiles test files one at a time by default to reduce peak
-  compiler memory. An explicit native `--max-requires N` overrides the default.
-- Test capture keeps its forced dry-run options before a native `--` file
-  separator, including when an earlier option disables dry-run.
-- `mix argus` and `mix argus.test` fail after reporting a degraded analysis,
+
+- `mix argus` fails after reporting a degraded analysis,
   matching the native CLI status instead of treating zero findings as success.
 
 - TSV encoding skips ordinary ASCII in eight-byte groups. Escaping still preserves

@@ -1,0 +1,4 @@
+.include "../../priv/dl/clientlib/imports.dl"
+.decl lean_function(func:symbol)
+.output lean_function
+lean_function(func) :- function_def(func, _, _, _, _).

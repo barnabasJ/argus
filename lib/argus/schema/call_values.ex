@@ -9,31 +9,6 @@ defmodule Argus.Schema.CallValues do
   def relations do
     Argus.Schema.Reads.record("relations #{__MODULE__}", [
       %{
-        name: :tmp_dir_argument,
-        layer: 2,
-        fields: [
-          {:id, :symbol, "call instruction"},
-          {:func, :symbol, "calling function"},
-          {:callee, :symbol, "called function"},
-          {:pos, :number, "zero-based argument position"},
-          {:kind, :symbol, "root | param | call"},
-          {:source, :symbol, "temporary-root call site, parameter position, or project-call site"}
-        ],
-        doc:
-          "Temporary-path provenance in a call argument. Path construction preserves sources; unknown runtime calls do not."
-      },
-      %{
-        name: :tmp_dir_return,
-        layer: 2,
-        fields: [
-          {:func, :symbol, "returning function"},
-          {:kind, :symbol, "root | param | call"},
-          {:source, :symbol, "temporary-root call site, parameter position, or project-call site"}
-        ],
-        doc:
-          "Temporary-path provenance returned by a function. Composed with tmp_dir_argument across helpers."
-      },
-      %{
         name: :call_arg,
         layer: 2,
         # Keyed by caller rather than instruction ID: consumers need argument values per

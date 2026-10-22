@@ -18,7 +18,7 @@ defmodule Argus.Test.Graph do
   # every analysis in `:all` has rows to agree on.
   @parity_sources ~w(
     call_cycle_fixture.ex check_then_act_fixture.ex consistency_fixture.ex
-    dynamic_supervisor_fixture.ex ets_fixture.ex exunit_tmp_dir_fixture.ex gen_statem_fixture.ex
+    dynamic_supervisor_fixture.ex ets_fixture.ex gen_statem_fixture.ex
     pid_flow_fixture.ex secret_fixture.ex shutdown_fixture.ex
     supervision_fixture.ex taint_fixture.ex timeout_chain_fixture.ex
     transaction_fixture.ex unreceived_message_fixture.ex unsafe_task_fixture.ex
@@ -28,8 +28,7 @@ defmodule Argus.Test.Graph do
     erl/padl2010_time_stamp.erl
   )
 
-  # This helper keeps its real test/support ownership for the ExUnit analysis.
-  @parity_support_sources ~w(exunit_tmp_dir_helpers.ex)
+  @parity_support_sources []
 
   @doc """
   The parity set: `module => beam_path` for every module argus's own

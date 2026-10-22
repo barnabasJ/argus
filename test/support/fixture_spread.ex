@@ -36,8 +36,6 @@ defmodule Argus.Test.FixtureSpread do
     Argus.Test.Fixtures.ParamFlow.Returns,
     Argus.Test.Fixtures.SecurityValues,
     Argus.Test.Fixtures.ResultChecks,
-    Argus.Test.Fixtures.ExUnitTmpDir,
-    Argus.Test.Fixtures.ExUnitTmpDir.Helpers,
     Argus.Test.Fixtures.CodeInjection,
     Argus.Test.Fixtures.SqlInjection,
     Argus.Test.Fixtures.SqlComments,

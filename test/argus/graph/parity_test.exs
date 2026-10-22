@@ -35,7 +35,6 @@ defmodule Argus.Graph.ParityTest do
     Argus.Test.Fixtures.CheckThenAct.MnesiaHelpers,
     Argus.Test.Fixtures.UnreceivedMessage.Audit,
     Argus.Test.Fixtures.UnreceivedMessage.Helper,
-    Argus.Test.Fixtures.ExUnitTmpDir.Helpers,
     :padl2010_proc_reg
   ]
 

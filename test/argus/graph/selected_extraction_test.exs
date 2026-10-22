@@ -24,10 +24,33 @@ defmodule Argus.Graph.SelectedExtractionTest.RenamedStage do
   end
 end
 
+defmodule Argus.Graph.SelectedExtractionTest.LeanStage do
+  @behaviour Argus.Analysis
+  @impl Argus.Analysis
+  @spec name() :: atom()
+  def name, do: :lean_stage
+  @impl Argus.Analysis
+  @spec description() :: String.t()
+  def description, do: "A small external analysis selects its producers"
+  @impl Argus.Analysis
+  @spec rules_file() :: Path.t()
+  def rules_file, do: Path.expand("../../fixtures/lean_stage.dl", __DIR__)
+  @impl Argus.Analysis
+  @spec extractors() :: [module()]
+  def extractors, do: [Argus.Extractors.ClauseCall, Argus.Extractors.Tooling]
+  @impl Argus.Analysis
+  @spec output_relations() :: [Argus.Analysis.output_relation()]
+  def output_relations,
+    do: [
+      %{name: :lean_function, fields: [{:func, :symbol, "Function"}], doc: "Selected functions"}
+    ]
+end
+
 defmodule Argus.Graph.SelectedExtractionTest do
   use ExUnit.Case, async: true
 
   alias __MODULE__.RenamedStage
+  alias __MODULE__.LeanStage
   alias Argus.Graph
   alias Argus.Graph.Extraction
   alias Argus.Test.Graph, as: TestGraph
@@ -40,13 +63,12 @@ defmodule Argus.Graph.SelectedExtractionTest do
     session = Graph.open(store: Blob.temporary())
 
     try do
-      Graph.set_environment(session.db, analyses: [:exunit_tmp_dir], stamps: false)
+      Graph.set_environment(session.db, analyses: [LeanStage], stamps: false)
 
       assert producers(session.db) ==
                Enum.sort([
                  :base,
                  Argus.Extractors.ClauseCall,
-                 Argus.Extractors.TempDirectories,
                  Argus.Extractors.Tooling
                ])
 
@@ -60,15 +82,15 @@ defmodule Argus.Graph.SelectedExtractionTest do
   test "selection changes survive manifest restoration without losing broad facts", %{
     tmp_dir: dir
   } do
-    path = Argus.Test.Fixtures.ExUnitTmpDir.Helpers |> :code.which() |> to_string()
+    path = Argus.Test.Fixtures.PidFlow.Hub |> :code.which() |> to_string()
     store = Blob.open!(Path.join(dir, "store"))
     manifest = Path.join(dir, "manifest")
 
-    narrow = snapshot(store, manifest, path, [:exunit_tmp_dir])
+    narrow = snapshot(store, manifest, path, [LeanStage])
     broad = snapshot(store, manifest, path, :all)
     assert Enum.sort(Map.keys(broad.producers)) == Enum.sort(Extraction.producers())
     assert Map.has_key?(broad.producers, Argus.Extractors.ETS)
-    assert narrow == snapshot(store, manifest, path, [:exunit_tmp_dir])
+    assert narrow == snapshot(store, manifest, path, [LeanStage])
     assert broad == snapshot(store, manifest, path, :all)
   end
 
@@ -111,7 +133,7 @@ defmodule Argus.Graph.SelectedExtractionTest do
       selected = producers(db)
       assert Argus.Extractors.TermFlow in selected
       assert Argus.Extractors.OTP in selected
-      refute Argus.Extractors.TempDirectories in selected
+      refute Argus.Extractors.ETS in selected
 
       assert {:ok, %{"stage_probe" => [_ | _]} = narrow} =
                Graph.Findings.results(db, :test, RenamedStage)

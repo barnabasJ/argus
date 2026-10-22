@@ -1272,14 +1272,6 @@
 .decl tls_verification(id: symbol, func: symbol, setting: symbol) mutable
 .input tls_verification
 
-// Temporary-path provenance in a call argument. Path construction preserves sources; unknown runtime calls do not.
-.decl tmp_dir_argument(id: symbol, func: symbol, callee: symbol, pos: number, kind: symbol, source: symbol) mutable
-.input tmp_dir_argument
-
-// Temporary-path provenance returned by a function. Composed with tmp_dir_argument across helpers.
-.decl tmp_dir_return(func: symbol, kind: symbol, source: symbol) mutable
-.input tmp_dir_return
-
 // A module identified as developer tooling or test support by its name or compile path (`Argus.Extractors.Tooling`). `clientlib/tooling.dl` lowers finding severity there; the tooling prior classifies unresolved modules.
 //
 .decl tooling_module(mod: symbol, basis: symbol) mutable
