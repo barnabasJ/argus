@@ -28,6 +28,7 @@ defmodule Argus.Findings.Build do
   alias Argus.Findings.Names
   alias Argus.Findings.Rows
   alias Argus.Findings.Tooling
+  alias Argus.ReviewedFindings.Identity
 
   @typedoc "A row whose builder raised: its relation, the row, and the exception."
   @type failure :: %{relation: atom(), row: [String.t()], exception: Exception.t()}
@@ -38,7 +39,13 @@ defmodule Argus.Findings.Build do
   declare as outputs are ignored.
   """
   @spec build(module(), %{String.t() => [[String.t()]]}) :: {[Findings.finding()], [failure()]}
-  def build(mod, results) do
+  def build(mod, results), do: build(mod, results, false)
+
+  @doc "Build review candidates with complete raw identity; ordinary builds retain their shape."
+  def with_review_identity(mod, results), do: build(mod, results, true)
+
+  defp build(mod, results, review?) do
+    census = if review?, do: Identity.census!(mod, results)
     relations = Map.new(mod.output_relations(), &{Atom.to_string(&1.name), &1})
     results = Map.take(results, Map.keys(relations))
     has_builder? = function_exported?(mod, :finding, 2)
@@ -69,11 +76,22 @@ defmodule Argus.Findings.Build do
             |> Map.put(:analysis, mod.name())
             |> Map.put(:concern, mod.name())
             |> Names.render()
+            |> review_identity(census, relation, row)
 
           {[finding | findings], failures}
       end
 
     {Enum.reverse(findings), Enum.reverse(failures) ++ evidence_failures}
+  end
+
+  defp review_identity(finding, nil, _relation, _row), do: finding
+
+  defp review_identity(finding, census, relation, row) do
+    Map.put(
+      finding,
+      :review_identity,
+      Identity.for_row(census, relation, row)
+    )
   end
 
   # The modules the analysis's `retier: :tooling` relation names, if it

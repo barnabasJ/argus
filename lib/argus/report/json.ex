@@ -53,7 +53,7 @@ defmodule Argus.Report.Json do
   def print(entries, cwd), do: IO.puts(encode(entries, cwd))
 
   defp entry(%Entry{} = entry, cwd) do
-    object(
+    pairs = [
       analysis: Atom.to_string(entry.analysis),
       severity: Atom.to_string(entry.severity),
       file: Report.relative(entry.file, cwd),
@@ -79,7 +79,21 @@ defmodule Argus.Report.Json do
            end),
            "]"
          ]}
-    )
+    ]
+
+    pairs = if entry.review, do: pairs ++ [review: review(entry.review)], else: pairs
+    object(pairs)
+  end
+
+  defp review(value) do
+    %{
+      "status" => Atom.to_string(value.status),
+      "native_severity" => Atom.to_string(value.native_severity),
+      "candidate" => value.candidate,
+      "decision" => value.review && value.review["decision"],
+      "justification" => value.review && value.review["justification"],
+      "file" => value.file && %{"path" => value.file.path, "sha256" => value.file.sha256}
+    }
   end
 
   defp object(pairs) do

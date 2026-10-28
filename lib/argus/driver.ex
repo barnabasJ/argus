@@ -32,6 +32,7 @@ defmodule Argus.Driver do
 
   alias Argus.Driver.Result
   alias Argus.Graph
+  alias Argus.ReviewedFindings.Proof
   alias Roux.Input
 
   @program :project
@@ -78,6 +79,14 @@ defmodule Argus.Driver do
     * `:manifest` — the manifest to keep the graph in, default
       `manifest_file/1`;
     * `:store` — the blob store, default `Argus.Graph.store/0`;
+    * `:review_records` — exact decoded JSON review records. The Driver itself
+      produces the current complete proof and validates each applied record.
+      Never supply an externally constructed proof or disposition.
+    * `:review_file` — path/hash provenance returned by ReviewedFindings.File.
+    * `:review_proof` — opt into a complete native review proof (default false).
+      Proof alone does not exempt a finding. Configured exact records select
+      dispositions only after complete native proof. Missing source or degraded
+      input raises instead of producing a reviewable certificate.
     * `:force` — start cold, ignoring the manifest (it is written
       afresh).
   """
@@ -86,6 +95,17 @@ defmodule Argus.Driver do
     project = Keyword.get_lazy(opts, :project, &mix_project/0)
     manifest = Keyword.get_lazy(opts, :manifest, fn -> manifest_file(project) end)
     force? = Keyword.get(opts, :force, false)
+
+    records =
+      case Keyword.fetch(opts, :review_records) do
+        :error -> nil
+        {:ok, values} -> Argus.ReviewedFindings.records!(values)
+      end
+
+    review? = Keyword.get(opts, :review_proof, false)
+    unless is_boolean(review?), do: raise(ArgumentError, "review_proof must be boolean")
+    review? = review? or not is_nil(records)
+    inventory = if review?, do: Proof.inventory!(project)
 
     session = Graph.open(store: Keyword.get(opts, :store), manifest: manifest, force: force?)
     # The session ends with the run, which solves each program once.
@@ -142,6 +162,21 @@ defmodule Argus.Driver do
           {%{}, [:engine_unavailable]}
         end
 
+      review =
+        if review? do
+          Proof.capture!(
+            db,
+            @program,
+            config,
+            project,
+            inventory,
+            meta,
+            located,
+            notices ++ Enum.map(duplicates, &{:duplicate, &1})
+          )
+        end
+
+      {located, review} = apply_reviews(located, review, records, opts[:review_file])
       changed? = force? or moved?(session)
       {_status, _session} = Roux.Session.commit(session, meta)
       _ = collect(session.blob)
@@ -149,11 +184,54 @@ defmodule Argus.Driver do
       %Result{
         located: located,
         notices: notices ++ Enum.map(duplicates, &{:duplicate, &1}),
-        changed?: changed?
+        changed?: changed?,
+        review: review
       }
     after
       Roux.Session.close(session)
     end
+  end
+
+  defp apply_reviews(located, review, nil, _file), do: {located, review}
+
+  defp apply_reviews(located, review, records, file) do
+    raw =
+      for {name, analysis} <- Enum.sort(review.analyses),
+          finding <- analysis.findings,
+          do: {name, finding}
+
+    candidates =
+      Enum.map(raw, fn {_name, finding} ->
+        Argus.ReviewedFindings.candidate(finding.review_identity, review.proof)
+      end)
+
+    matched = Argus.ReviewedFindings.match!(candidates, records)
+    grouped = Enum.zip(raw, matched) |> Enum.group_by(fn {{name, _finding}, _match} -> name end)
+
+    placed =
+      Map.new(located, fn {name, {:ok, values}} ->
+        enriched = Map.get(grouped, name, [])
+
+        original =
+          Enum.map(enriched, fn {{_name, finding}, _match} ->
+            Map.delete(finding, :review_identity)
+          end)
+
+        unless Enum.map(values, & &1.finding) == original,
+          do: raise(ArgumentError, "argus review: native raw finding association differs")
+
+        annotated =
+          Enum.zip_with(values, enriched, fn location, {{_name, finding}, match} ->
+            disposition =
+              match |> Map.put(:native_severity, finding.severity) |> Map.put(:file, file)
+
+            %{location | finding: Map.put(location.finding, :review, disposition)}
+          end)
+
+        {name, {:ok, annotated}}
+      end)
+
+    {placed, Map.merge(review, %{records: records, file: file})}
   end
 
   # Whether the run moved an input or computed an entry the manifest

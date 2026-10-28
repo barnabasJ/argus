@@ -39,7 +39,7 @@ defmodule Argus.Report.Entry do
     :provenance,
     :confidence
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [review: nil]
 
   @typedoc "A related frame: its label and where it is."
   @type frame :: %{
@@ -61,7 +61,8 @@ defmodule Argus.Report.Entry do
           help: [String.t()],
           related: [frame()],
           provenance: Argus.Findings.provenance(),
-          confidence: 0..1000 | nil
+          confidence: 0..1000 | nil,
+          review: map() | nil
         }
 
   @doc """
@@ -86,7 +87,8 @@ defmodule Argus.Report.Entry do
       help: finding.help,
       related: related(finding.related, refined.related),
       provenance: finding.provenance,
-      confidence: finding.confidence
+      confidence: finding.confidence,
+      review: Map.get(finding, :review)
     }
   end
 

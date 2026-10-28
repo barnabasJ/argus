@@ -13,7 +13,8 @@ defmodule Mix.Tasks.ArgusTest do
 
   import ExUnit.CaptureIO
 
-  alias Argus.Test.{Fixture, Peer}
+  alias Argus.Test.{Fixture, Peer, ReviewedFrontend}
+  alias Mix.Tasks.Compile.Argus, as: ArgusCompiler
   alias Roux.QueryLog
 
   @moduletag timeout: 300_000
@@ -226,5 +227,155 @@ defmodule Mix.Tasks.ArgusTest do
         end)
       end)
     end
+  end
+
+  test "exact review JSON preserves visible findings through cold and warm task gates", %{
+    peer: peer
+  } do
+    {copy, app} = ReviewedFrontend.checkout!()
+
+    Fixture.in_peer(peer, copy, app, fn _log ->
+      ReviewedFrontend.bootstrap!()
+      ReviewedFrontend.assert_reviewed!(:task)
+      ReviewedFrontend.assert_reviewed!(:task)
+    end)
+  end
+
+  test "missing, malformed and duplicate review records fail the real task", %{peer: peer} do
+    {copy, app} = ReviewedFrontend.checkout!()
+
+    Fixture.in_peer(peer, copy, app, fn _log ->
+      {_run, [first | _] = records} = ReviewedFrontend.bootstrap!()
+      ReviewedFrontend.assert_reviewed!(:task)
+
+      for bytes <- ["[", "{}", JSON.encode!([first, first]), "[{\"version\":1,\"version\":1}]"] do
+        File.write!("reviews.json", bytes)
+        assert_raise Argus.ConfigError, fn -> ReviewedFrontend.invoke(:task) end
+      end
+
+      File.rm!("reviews.json")
+      assert ArgusCompiler.diagnostics() == []
+      assert_raise Argus.ConfigError, fn -> ReviewedFrontend.invoke(:task) end
+      ReviewedFrontend.write_records(records)
+      ReviewedFrontend.assert_reviewed!(:task)
+    end)
+  end
+
+  test "raw source changes invalidate an exact review in the real task", %{peer: peer} do
+    {copy, app} = ReviewedFrontend.checkout!()
+
+    Fixture.in_peer(peer, copy, app, fn _log ->
+      ReviewedFrontend.bootstrap!()
+      ReviewedFrontend.assert_reviewed!(:task)
+
+      ReviewedFrontend.edit!(
+        "lib/depot/review_caller_5.ex",
+        &("# changed raw source\n" <> &1)
+      )
+
+      assert ArgusCompiler.diagnostics() == []
+
+      assert_raise ArgumentError, ~r/stale review/, fn ->
+        ReviewedFrontend.invoke(:task)
+      end
+    end)
+  end
+
+  test "a nonrepresentative witness changes the full census at unchanged primary count in task",
+       %{peer: peer} do
+    {copy, app} = ReviewedFrontend.checkout!()
+
+    Fixture.in_peer(peer, copy, app, fn _log ->
+      {original, records} = ReviewedFrontend.bootstrap!()
+
+      ReviewedFrontend.edit!(
+        "lib/depot/review_caller_5.ex",
+        &String.replace(&1, "def ask", "def changed_witness")
+      )
+
+      changed = ReviewedFrontend.changed!()
+
+      before =
+        Enum.find(
+          original.review.analyses.blocking.findings,
+          &(&1.title == "High synchronous fan-in")
+        )
+
+      after_finding =
+        Enum.find(
+          changed.review.analyses.blocking.findings,
+          &(&1.title == "High synchronous fan-in")
+        )
+
+      assert before.review_identity.row == after_finding.review_identity.row
+
+      refute before.review_identity.census.outputs["bottleneck_caller"] ==
+               after_finding.review_identity.census.outputs["bottleneck_caller"]
+
+      ReviewedFrontend.write_records(records)
+
+      assert_raise ArgumentError, ~r/stale review/, fn ->
+        ReviewedFrontend.invoke(:task)
+      end
+    end)
+  end
+
+  test "a new self-call in the same reviewed MFA fails the actual task gate", %{peer: peer} do
+    {copy, app} = ReviewedFrontend.checkout!()
+
+    Fixture.in_peer(peer, copy, app, fn _log ->
+      {original, old_records} = ReviewedFrontend.bootstrap!()
+
+      ReviewedFrontend.edit!(
+        "lib/depot/sonar.ex",
+        &String.replace(
+          &1,
+          "def handle_call(:ping, _from, state) do",
+          "def handle_call(:ping, _from, state) do\n    GenServer.call(self(), :ping)"
+        )
+      )
+
+      changed = ReviewedFrontend.changed!()
+
+      previous =
+        Enum.find(
+          original.review.analyses.blocking.findings,
+          &(&1.title == "High synchronous fan-in")
+        )
+
+      defect =
+        Enum.find(
+          changed.review.analyses.blocking.findings,
+          &(&1.title == "Synchronous call to the calling process itself")
+        )
+
+      assert defect.mfa == previous.mfa
+      assert defect.severity == :error
+      ReviewedFrontend.write_records(old_records)
+
+      assert_raise ArgumentError, ~r/stale review/, fn ->
+        ReviewedFrontend.invoke(:task)
+      end
+
+      ReviewedFrontend.write_records(ReviewedFrontend.records(changed, defect.title))
+
+      ReviewedFrontend.assert_new_error!(:task)
+    end)
+  end
+
+  test "duplicate real input beams cannot provide complete review proof for task", %{peer: peer} do
+    {copy, app} = ReviewedFrontend.checkout!()
+
+    Fixture.in_peer(peer, copy, app, fn _log ->
+      ReviewedFrontend.bootstrap!()
+      source = Path.join(Mix.Project.compile_path(), "Elixir.Depot.Sonar.beam")
+      duplicate = Path.join([Mix.Project.build_path(), "lib", "review_duplicate", "ebin"])
+      File.mkdir_p!(duplicate)
+      File.cp!(source, Path.join(duplicate, "Elixir.Depot.Sonar.beam"))
+
+      assert_raise ArgumentError, ~r/duplicate input modules/, fn ->
+        ReviewedFrontend.invoke(:task)
+      end
+    end)
   end
 end

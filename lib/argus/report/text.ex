@@ -32,8 +32,12 @@ defmodule Argus.Report.Text do
     with_color(color, fn ->
       IO.iodata_to_binary([
         Enum.map(notices, &[notice(&1), "\n"]),
-        Enum.map(entries, &[Report.Pentiment.format(&1, cwd, colors: color != :never), "\n\n"]),
+        Enum.map(
+          entries,
+          &[Report.Pentiment.format(&1, cwd, colors: color != :never), review_note(&1), "\n\n"]
+        ),
         Report.summary(entries),
+        gate_summary(entries),
         "\n"
       ])
     end)
@@ -51,6 +55,20 @@ defmodule Argus.Report.Text do
 
   # Pentiment colors only when ANSI is enabled: `:always` enables it for
   # the call.
+  defp review_note(%{review: nil}), do: ""
+  defp review_note(%{review: %{status: :unreviewed}}), do: "\nReview: unreviewed"
+
+  defp review_note(%{review: %{status: :reviewed, review: record}}) do
+    "\nReview: reviewed false_positive\nJustification: " <> JSON.encode!(record["justification"])
+  end
+
+  defp gate_summary(entries) do
+    if Enum.any?(entries, & &1.review),
+      do:
+        "\nGate: #{length(Report.unreviewed(entries))} unreviewed, #{length(entries) - length(Report.unreviewed(entries))} reviewed",
+      else: ""
+  end
+
   defp with_color(:always, fun) do
     previous = Application.fetch_env(:elixir, :ansi_enabled)
     Application.put_env(:elixir, :ansi_enabled, true)

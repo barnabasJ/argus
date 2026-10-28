@@ -10,6 +10,8 @@ defmodule Argus.Driver.Result do
     * `notices` — what a reader of the findings should know about the
       run that is not a finding (`t:notice/0`). An analysis that
       degraded is not among them: `located` says so.
+    * `review` — optional current native proof, raw census and applied JSON
+      record provenance. Only Driver-created configured dispositions reach gates.
     * `changed?` — whether the run found anything moved since the last
       (a Mix compiler's `:ok` against `:noop`).
 
@@ -29,7 +31,7 @@ defmodule Argus.Driver.Result do
   """
 
   @enforce_keys [:located, :notices, :changed?]
-  defstruct [:located, :notices, :changed?]
+  defstruct [:located, :notices, :changed?, review: nil]
 
   @typedoc "A module extraction could not fully read."
   @type extraction_error :: %{
@@ -51,7 +53,8 @@ defmodule Argus.Driver.Result do
   @type t :: %__MODULE__{
           located: %{optional(atom()) => {:ok, [Argus.Located.t()]} | {:error, term()}},
           notices: [notice()],
-          changed?: boolean()
+          changed?: boolean(),
+          review: map() | nil
         }
 
   @doc "The analyses that degraded, with why."

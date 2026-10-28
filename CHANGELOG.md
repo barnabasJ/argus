@@ -3,6 +3,22 @@
 Notable changes and upgrade notes for Argus. Entries describe the release in
 which a change appeared; older names and APIs may have changed since then.
 
+## Unreleased
+
+### Added
+
+- Accept optional exact JSON false-positive reviews bound by the actual native
+  Driver's complete source/analysis/raw-witness proof. Retain every finding,
+  original severity and justification in reports; count only unreviewed findings
+  in existing gates. Compiler diagnostics show accepted reviews as information.
+  Default no-file behavior and the existing plugin WAE limitation are unchanged.
+
+### Fixed
+
+- Read BEAM bytes before extracting documentation and debug-info chunks so
+  missing chunks under paths longer than 255 characters retain their normal
+  result on OTP 28 instead of failing during filename error reporting.
+
 ## 0.24.0 — 2026-10-15
 
 ### Removed

@@ -189,3 +189,56 @@ a finding, inspect its rules and facts, or run a small extension. The
 ## License
 
 MIT
+
+
+## Exact reviewed false positives
+
+Configure an optional JSON data file in the existing project options:
+
+```elixir
+argus: [analyses: [:all], engine: :require, reviewed_findings: "argus-reviews.json"]
+```
+
+With no configured file, reports and gates retain their normal behavior. A
+configured file must exist. Start with a JSON list `[]`; this accepts no findings.
+Run `mix argus --format json` to obtain each actual current diagnostic's
+`review.candidate` (`version`, `fingerprint`, `proof`). A review record adds
+`"decision": "false_positive"` and a nonempty `"justification"` to those exact
+three fields. Review these records as source changes. Do not copy a fingerprint
+from an older source or invent a proof. No project review code is evaluated.
+
+The actual Driver binds the current source, compiled modules, semantic policy,
+analysis/rules/producers, full raw diagnostic census and every evidence witness.
+It matches every record exactly once. Missing/unreadable files, malformed JSON,
+duplicate object keys or records, stale/ambiguous records and incomplete runs fail.
+An unreviewed new defect, including another defect in the same MFA, keeps its
+normal failure behavior. This is conservative: unrelated bound input changes can
+require a new review too. Changing only the transport file or its justification
+does not change solver policy; its actual byte hash is reported separately.
+
+Every finding remains visible with its original report severity. Configured JSON
+adds a `review` object with status, native severity, candidate, decision,
+justification and data-file provenance. Text retains full frames and raw totals,
+then shows review status/reason and separate gate counts. One-shot count/severity
+gates count unreviewed entries. A configured record cannot exempt a finding that
+an existing report filter would hide. The compiler emits an informational Mix
+diagnostic for an exactly reviewed false positive; its details retain the raw
+frame, original severity and justification. Unreviewed and infrastructure
+warnings/errors are unchanged. Warm runs read and validate current records again.
+
+The public chain is `Mix.Tasks.Argus.run/1` or
+`Mix.Tasks.Compile.Argus.run/1` → `Argus.Config.load/0` →
+`Argus.ReviewedFindings.File.load!/2` → `Argus.Driver.run/2` →
+`Argus.ReviewedFindings.Proof.capture!/8` →
+`Argus.ReviewedFindings.candidate/2` and `match!/2` →
+`Argus.Report.build/3` → text/JSON or Mix diagnostics. The escript reaches the
+same Driver/report path through `Argus.CLI.run/1`. Review acceptance is owned by
+the actual Driver run; pure candidate helpers or caller-constructed result maps
+are not an authorization boundary.
+
+The compiler's existing gate is `fail_on:`. This change preserves the existing
+plugin behavior: `--warnings-as-errors` alone does not promote Argus plugin
+warnings when its `fail_on` is `:error`. Use the existing `fail_on: :warning` for
+that Argus gate. Normal Elixir compiler warning handling remains unchanged.
+No threshold, exclusion, rule or diagnostic severity override is needed to
+review an exact false positive.

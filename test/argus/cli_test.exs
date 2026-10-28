@@ -204,4 +204,47 @@ defmodule Argus.CLITest do
       end
     end
   end
+
+  @tag :flowlog
+  @tag timeout: 300_000
+  test "configured review JSON uses actual escript Driver proof and preserves severity", %{
+    tmp_dir: dir
+  } do
+    root = Projects.synthesize!(:rebar3_app, Path.join(dir, "reviewed"))
+
+    config =
+      Argus.Config.load(
+        analyses: [:coupling, :failure],
+        engine: :require,
+        reviewed_findings: "reviews.json"
+      )
+
+    {:ok, project} = Argus.Project.load(:rebar3, root)
+    actual = Argus.Driver.run(config, project: project, review_proof: true)
+
+    records =
+      for {_name, analysis} <- actual.review.analyses, finding <- analysis.findings do
+        finding.review_identity
+        |> Argus.ReviewedFindings.candidate(actual.review.proof)
+        |> Map.merge(%{
+          "decision" => "false_positive",
+          "justification" => "Exact escript fixture review."
+        })
+      end
+
+    assert records != []
+    File.write!(Path.join(root, "reviews.json"), JSON.encode!(records))
+
+    File.write!(
+      Path.join(root, "rebar.config"),
+      "{argus,[{analyses,[coupling,failure]},{engine,require},{reviewed_findings,\"reviews.json\"}]}.\n"
+    )
+
+    assert %{status: 0, stdout: stdout} = run([root, "--format", "json", "--fail-above", "0"])
+    entries = JSON.decode!(stdout)
+    assert Enum.all?(entries, &(&1["review"]["status"] == "reviewed"))
+    assert Enum.any?(entries, &(&1["severity"] == "warning"))
+    File.write!(Path.join(root, "reviews.json"), "not JSON")
+    assert %{status: 2} = run([root, "--format", "json", "--fail-above", "0"])
+  end
 end

@@ -42,18 +42,46 @@ defmodule Argus.Report do
         ) :: [Entry.t()]
   def build(located, %Argus.Config{} = config, cwd) when is_map(located) do
     # Every source read once for the whole report (`Argus.Locate.Source.within/1`).
-    Argus.Locate.Source.within(fn ->
-      for {_analysis, {:ok, placed}} <- Enum.sort(located),
-          one <- placed,
-          not ignored_finding?(one.finding, config),
-          %Entry{} = entry <- [Entry.from_located(one)],
-          not ignored_file?(entry.file, config, cwd) do
-        %{entry | severity: Map.get(config.severity, entry.analysis, entry.severity)}
-      end
-    end)
-    |> Enum.sort_by(
-      &{Argus.Findings.severity_rank(&1.severity), &1.file, &1.line, &1.analysis, &1.title}
-    )
+    entries =
+      Argus.Locate.Source.within(fn ->
+        for {_analysis, {:ok, placed}} <- Enum.sort(located),
+            one <- placed,
+            not ignored_finding?(one.finding, config),
+            %Entry{} = entry <- [Entry.from_located(one)],
+            not ignored_file?(entry.file, config, cwd) do
+          %{entry | severity: Map.get(config.severity, entry.analysis, entry.severity)}
+        end
+      end)
+      |> Enum.sort_by(
+        &{Argus.Findings.severity_rank(&1.severity), &1.file, &1.line, &1.analysis, &1.title}
+      )
+
+    ensure_review_visibility!(located, entries)
+    entries
+  end
+
+  @doc "Only unreviewed diagnostics contribute to a findings gate; every entry remains visible."
+  @spec unreviewed([Entry.t()]) :: [Entry.t()]
+  def unreviewed(entries), do: Enum.reject(entries, &match?(%{review: %{status: :reviewed}}, &1))
+
+  defp ensure_review_visibility!(located, entries) do
+    expected =
+      for {_name, {:ok, values}} <- located,
+          value <- values,
+          %{status: :reviewed, candidate: candidate} <- [Map.get(value.finding, :review)],
+          do: candidate["fingerprint"]
+
+    visible =
+      for %{review: %{status: :reviewed, candidate: candidate}} <- entries,
+          do: candidate["fingerprint"]
+
+    unless Enum.sort(expected) == Enum.sort(visible) and
+             length(visible) == length(Enum.uniq(visible)),
+           do:
+             raise(
+               ArgumentError,
+               "argus review: each applied record must remain visible exactly once"
+             )
   end
 
   @doc """

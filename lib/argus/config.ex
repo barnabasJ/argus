@@ -41,6 +41,11 @@ defmodule Argus.Config do
                     {findings, [{shutdown, my_writer}, {races, {my_reading, retry, 2}}]}]}
       ]}.
 
+  `reviewed_findings:` optionally names a JSON data file of exact, justified
+  false-positive records. With no file, reports/gates retain their normal behavior.
+  The Driver binds every record to a complete current raw diagnostic proof.
+  See the README's "Exact reviewed false positives" contract.
+
   Every key is optional. `analyses` defaults to argus's `:default` set
   (`Argus.Graph.default_analyses/0`); a name is validated against the
   registry, so a typo stops the run instead of silently analyzing
@@ -93,7 +98,7 @@ defmodule Argus.Config do
     :engine,
     :priors
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [reviewed_findings: nil]
 
   @typedoc "One analysis's findings left out in a module, or in a function."
   @type ignored_finding :: {atom(), module() | mfa()}
@@ -115,7 +120,8 @@ defmodule Argus.Config do
           include_deps: boolean(),
           fail_on: :error | :warning,
           engine: :warn | :require,
-          priors: priors()
+          priors: priors(),
+          reviewed_findings: Path.t() | nil
         }
 
   @typedoc """
@@ -127,7 +133,16 @@ defmodule Argus.Config do
   @type origin :: :inline | :cli | {:mix, Path.t()} | {:rebar3, Path.t()} | {:file, Path.t()}
 
   @severities [:error, :warning, :info]
-  @keys [:analyses, :severity, :ignore, :include_deps, :fail_on, :engine, :priors]
+  @keys [
+    :analyses,
+    :severity,
+    :ignore,
+    :include_deps,
+    :fail_on,
+    :engine,
+    :priors,
+    :reviewed_findings
+  ]
   @ignore_keys [:modules, :files, :findings]
 
   # Keys the rebar3 plugin reads from `{argus_plugin, [...]}`: written
@@ -170,7 +185,8 @@ defmodule Argus.Config do
       include_deps: boolean!(ctx, :include_deps, Keyword.get(raw, :include_deps, false)),
       fail_on: enum!(ctx, [:fail_on], Keyword.get(raw, :fail_on, :error), [:error, :warning]),
       engine: enum!(ctx, [:engine], Keyword.get(raw, :engine, :warn), [:warn, :require]),
-      priors: priors!(ctx, Keyword.get(raw, :priors, :off))
+      priors: priors!(ctx, Keyword.get(raw, :priors, :off)),
+      reviewed_findings: review_path!(ctx, Keyword.get(raw, :reviewed_findings))
     }
   end
 
@@ -181,6 +197,27 @@ defmodule Argus.Config do
   """
   @spec analyses([atom()], origin()) :: [atom()]
   def analyses(names, origin \\ :cli), do: analyses!(ConfigError.context(origin), names)
+
+  @doc "Semantic policy bound by review proof, excluding only the review data transport."
+  @spec analysis_policy(t()) :: map()
+  def analysis_policy(%__MODULE__{} = config),
+    do: config |> Map.from_struct() |> Map.delete(:reviewed_findings)
+
+  defp review_path!(_ctx, nil), do: nil
+
+  defp review_path!(ctx, value) do
+    path = string!(ctx, [:reviewed_findings], value, "reviewed_findings must be a JSON file path")
+
+    if String.trim(path) == "",
+      do:
+        fail(
+          ctx,
+          [:reviewed_findings],
+          value,
+          "reviewed_findings must be a nonempty JSON file path"
+        ),
+      else: path
+  end
 
   defp keyword!(ctx, key, value, expected) do
     if Keyword.keyword?(value),

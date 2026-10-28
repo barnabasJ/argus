@@ -355,4 +355,30 @@ defmodule Argus.ConfigTest do
                Source.mix(compilers: [:argus], argus: [analyses: [:mailbox]])
     end
   end
+
+  test "review data is optional typed configuration and not semantic solver policy" do
+    ordinary = Config.load([])
+    configured = Config.load(reviewed_findings: "reviews.json")
+    assert ordinary.reviewed_findings == nil
+    assert configured.reviewed_findings == "reviews.json"
+    expected = ordinary |> Map.from_struct() |> Map.delete(:reviewed_findings)
+
+    all_semantic_keys =
+      configured
+      |> Map.from_struct()
+      |> Map.keys()
+      |> Enum.reject(&(&1 == :reviewed_findings))
+      |> Enum.sort()
+
+    assert Config.analysis_policy(configured) == expected
+    assert Enum.sort(Map.keys(Config.analysis_policy(configured))) == all_semantic_keys
+    assert Config.analysis_policy(configured) == Config.analysis_policy(ordinary)
+
+    refute Config.analysis_policy(Config.load(analyses: [:blocking])) ==
+             Config.analysis_policy(configured)
+
+    for invalid <- [false, 17, %{}, "", "   "] do
+      assert_raise Argus.ConfigError, fn -> Config.load(reviewed_findings: invalid) end
+    end
+  end
 end

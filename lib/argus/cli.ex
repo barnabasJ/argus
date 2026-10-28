@@ -194,7 +194,10 @@ defmodule Argus.CLI do
     identity = identity()
     moved? = identity_moved?(project, identity)
 
-    result = Argus.Driver.run(config, project: project, force: options.force or moved?)
+    review = Argus.ReviewedFindings.File.load!(config.reviewed_findings, project.root)
+
+    result =
+      Argus.Driver.run(config, [project: project, force: options.force or moved?] ++ review)
 
     if moved?, do: keep_identity(project, identity)
 
@@ -204,6 +207,9 @@ defmodule Argus.CLI do
     %{status: status} = report(result, notices, config, options, project.root, cwd)
     status
   rescue
+    exception in Argus.ConfigError ->
+      error(2, Exception.message(exception))
+
     exception ->
       error(3, "the run failed: " <> Exception.format_banner(:error, exception, __STACKTRACE__))
   end
@@ -292,7 +298,7 @@ defmodule Argus.CLI do
   end
 
   defp over?(_entries, nil), do: false
-  defp over?(entries, threshold), do: length(entries) > threshold
+  defp over?(entries, threshold), do: length(Report.unreviewed(entries)) > threshold
 
   @doc """
   The entries at `severity` or above (`--fail-on`): none for `nil`.
@@ -301,7 +307,7 @@ defmodule Argus.CLI do
   def failing(_entries, nil), do: []
 
   def failing(entries, severity),
-    do: Enum.filter(entries, &(rank(&1.severity) <= rank(severity)))
+    do: entries |> Report.unreviewed() |> Enum.filter(&(rank(&1.severity) <= rank(severity)))
 
   defp rank(:error), do: 0
   defp rank(:warning), do: 1

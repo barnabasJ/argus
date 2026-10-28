@@ -273,23 +273,30 @@ defmodule Argus.Extractor.Helpers do
   end
 
   @doc """
-  What `:beam_lib.chunks/2` reads the module's chunks from: the beam the
-  pipeline handed over, as data or a path, or, for bare disassembly, the
-  module's file on the code path. `:error` when there is none.
+  The module's BEAM bytes: the data or file the pipeline handed over, or,
+  for bare disassembly, its file on the code path. `:error` when unreadable.
+
+  Read file bytes before asking beam_lib for chunks. On OTP 28, a missing
+  chunk in a file with a long path can fail while beam_lib formats its
+  error, because that path is converted to an atom. Binary input preserves
+  the normal missing-chunk result without that filename conversion.
   """
-  @spec beam_source(map()) :: {:ok, binary() | charlist()} | :error
+  @spec beam_source(map()) :: {:ok, binary()} | :error
   def beam_source(%{beam: beam}) when is_binary(beam) do
-    cond do
-      BeamSpy.BeamFile.beam_data?(beam) -> {:ok, beam}
-      File.regular?(beam) -> {:ok, String.to_charlist(beam)}
-      true -> :error
-    end
+    if BeamSpy.BeamFile.beam_data?(beam), do: {:ok, beam}, else: read_beam(beam)
   end
 
   def beam_source(%{module: mod}) do
     case :code.which(mod) do
-      path when is_list(path) -> {:ok, path}
+      path when is_list(path) -> read_beam(path)
       _ -> :error
+    end
+  end
+
+  defp read_beam(path) do
+    case File.read(path) do
+      {:ok, bytes} -> {:ok, bytes}
+      {:error, _reason} -> :error
     end
   end
 

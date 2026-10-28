@@ -39,6 +39,7 @@ defmodule Mix.Tasks.Compile.Argus do
 
   alias Argus.Mix.Diagnostics
   alias Argus.Report
+  alias Argus.ReviewedFindings.Proof
 
   # Mix runs a non-recursive compiler once at an umbrella's root, where
   # there is no app and no ebin to read. Recursive, it runs inside each
@@ -56,9 +57,14 @@ defmodule Mix.Tasks.Compile.Argus do
 
     config = Argus.Config.load()
     cwd = File.cwd!()
+    if config.reviewed_findings, do: File.rm(sidecar_file())
 
     result =
-      Argus.Driver.run(config, force: Keyword.get(opts, :force, false))
+      Argus.Driver.run(
+        config,
+        [force: Keyword.get(opts, :force, false)] ++
+          Argus.ReviewedFindings.File.load!(config.reviewed_findings, cwd)
+      )
 
     notices = Report.Notice.from_result(result, config, cwd)
     entries = Report.build(result.located, config, cwd)
@@ -69,7 +75,7 @@ defmodule Mix.Tasks.Compile.Argus do
     unless Process.get({__MODULE__, :quiet}, false), do: Diagnostics.print(rendered)
 
     diagnostics = Enum.map(rendered, & &1.diagnostic)
-    write_sidecar(diagnostics)
+    write_sidecar(diagnostics, result, config)
 
     {status(diagnostics, result, config), diagnostics}
   end
@@ -104,8 +110,8 @@ defmodule Mix.Tasks.Compile.Argus do
   @impl Mix.Task.Compiler
   def diagnostics do
     with {:ok, binary} <- File.read(sidecar_file()),
-         diagnostics when is_list(diagnostics) <- safe_decode(binary) do
-      diagnostics
+         decoded <- safe_decode(binary) do
+      current_diagnostics(decoded)
     else
       _ -> []
     end
@@ -130,10 +136,44 @@ defmodule Mix.Tasks.Compile.Argus do
 
   # ── sidecar (backs the diagnostics/0 callback) ───────────────────────
 
-  defp write_sidecar(diagnostics) do
+  defp write_sidecar(diagnostics, result, config) do
+    stored =
+      if config.reviewed_findings do
+        %{
+          review_version: 1,
+          diagnostics: diagnostics,
+          file: result.review.file,
+          policy: Argus.Config.analysis_policy(config),
+          inventory: result.review.proof.binding.inventory
+        }
+      else
+        diagnostics
+      end
+
     File.mkdir_p!(Mix.Project.manifest_path())
-    File.write!(sidecar_file(), :erlang.term_to_binary(diagnostics))
+    File.write!(sidecar_file(), :erlang.term_to_binary(stored))
   end
+
+  defp current_diagnostics(diagnostics) when is_list(diagnostics), do: diagnostics
+
+  defp current_diagnostics(%{review_version: 1} = saved) do
+    config = Argus.Config.load()
+    options = Argus.ReviewedFindings.File.load!(config.reviewed_findings, File.cwd!())
+
+    inventory =
+      Argus.Project.Mix.current()
+      |> Proof.inventory!()
+      |> Proof.certificate_inventory()
+
+    if options[:review_file] == saved.file and
+         Argus.Config.analysis_policy(config) == saved.policy and inventory == saved.inventory,
+       do: saved.diagnostics,
+       else: []
+  rescue
+    _error -> []
+  end
+
+  defp current_diagnostics(_invalid), do: []
 
   defp safe_decode(binary) do
     :erlang.binary_to_term(binary)

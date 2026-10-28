@@ -68,13 +68,29 @@ defmodule Argus.Mix.Diagnostics do
         file: entry.file,
         source: entry.file,
         position: entry.line,
-        severity: mix_severity(entry.severity),
-        message: "[#{Entry.code(entry)}] #{entry.title}",
-        details: Pentiment.format(report, sources, colors: false)
+        severity: diagnostic_severity(entry),
+        message: "[#{Entry.code(entry)}] #{entry.title}" <> review_label(entry),
+        details: Pentiment.format(report, sources, colors: false) <> review_details(entry)
       },
-      ansi: Pentiment.format(report, sources, colors: true)
+      ansi: Pentiment.format(report, sources, colors: true) <> review_details(entry)
     }
   end
+
+  defp diagnostic_severity(%{review: %{status: :reviewed}}), do: :information
+  defp diagnostic_severity(entry), do: mix_severity(entry.severity)
+
+  defp review_label(%{review: %{status: :reviewed}, severity: severity}),
+    do: " [reviewed false_positive; original #{severity}]"
+
+  defp review_label(_entry), do: ""
+
+  defp review_details(%{review: %{status: :reviewed, review: record}, severity: severity}),
+    do:
+      "\nReviewed false_positive; original severity: #{severity}\nJustification: " <>
+        JSON.encode!(record["justification"])
+
+  defp review_details(%{review: %{status: :unreviewed}}), do: "\nReview: unreviewed"
+  defp review_details(_entry), do: ""
 
   defp mix_severity(:error), do: :error
   defp mix_severity(:warning), do: :warning

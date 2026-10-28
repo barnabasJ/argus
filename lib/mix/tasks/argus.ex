@@ -71,7 +71,10 @@ defmodule Mix.Tasks.Argus do
     cwd = File.cwd!()
 
     result =
-      Argus.Driver.run(config, force: options.force)
+      Argus.Driver.run(
+        config,
+        [force: options.force] ++ Argus.ReviewedFindings.File.load!(config.reviewed_findings, cwd)
+      )
 
     if Argus.Driver.Result.engine_unavailable?(result) do
       Mix.raise("argus: " <> Argus.FlowLog.not_found_message())
@@ -82,8 +85,10 @@ defmodule Mix.Tasks.Argus do
     if options.format == :text, do: Mix.shell().print_app()
     %{entries: entries} = Argus.CLI.report(result, notices, config, options, cwd, cwd)
 
-    if options.fail_above && length(entries) > options.fail_above do
-      Mix.raise("argus: #{length(entries)} findings exceed --fail-above #{options.fail_above}")
+    unreviewed = Argus.Report.unreviewed(entries)
+
+    if options.fail_above && length(unreviewed) > options.fail_above do
+      Mix.raise("argus: #{length(unreviewed)} findings exceed --fail-above #{options.fail_above}")
     end
 
     case Argus.CLI.failing(entries, options.fail_on) do
